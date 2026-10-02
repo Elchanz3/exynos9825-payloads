@@ -1,0 +1,21 @@
+# Build artifacts
+*.elf
+*.bin
+*.disasm
+
+# Python
+__pycache__/
+*.py[cod]
+
+# BootROM / memory dumps
+bootrom_*.bin
+rom_*.bin
+iram_*.bin
+*_dma_*.bin
+*_dump.bin
+
+# Editors
+.vscode/
+.idea/
+*~
+.DS_Store
