@@ -51,7 +51,7 @@ shown above.
 | `usb_out_cancel_probe` | Cancels the stale EP2 transfer through the BootROM path and reports the TRB before and after | Hardware tested on SM-N975F. `ENDTRANSFER` succeeded and the TRB was cleared. |
 | `usb_receive_rearmed_probe` | Cancels the stale transfer, rearms EP2 OUT, and receives a bounded test frame | Hardware tested on SM-N975F. The framed transfer returned `RX1PASS!` and all 64 bytes matched. |
 | `epbl_receive_probe` | Receives and verifies the current Binary 9 EPBL in a bounded iRAM diagnostic area without executing it | Hardware tested on SM-N975F. The complete `0x3000`-byte EPBL returned `EPBPASS!`. |
-| `epbl_state_probe` | Captures the complete iRAM state window consumed by the Binary 9 EPBL without calling its pointers | Builds and passes host-side verification; hardware validation is pending. |
+| `epbl_state_probe` | Captures the complete iRAM state window consumed by the Binary 9 EPBL without calling its pointers | Hardware tested on SM-N975F. All four state records were received. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -215,9 +215,17 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
     --debug
 ```
 
-The expected output contains four complete `0x60`-byte records and terminates
-after `EPS3IRAM`. Hardware validation is required before any captured function
-pointer or stock EPBL entry is called.
+Hardware validation passed on 2026-10-03. The device returned all four records
+from `EPS0IRAM` through `EPS3IRAM`, covering every 32-bit word through
+`0x0202013c`. The 384-byte capture has SHA-256
+`b11f7c34a187601acbca7b6e03c65be70d72ed632e2cc195ba4679d9c9f7b07a`.
+
+The function-pointer area is coherent and includes the confirmed BootROM USB
+receive pointer `0x00000a3c` at `0x020200dc` and USB initialization pointer
+`0x000006e8` at `0x020200e0`. The captured stage bookkeeping is not ready for
+execution: `0x02020030` is `0x00de8e8f`, while
+`0x02020120..0x0202013c` contains non-address data. The EPBL must not be called
+until the required fields are reconstructed from the matching Binary 9 path.
 
 ### Same-session USB receive probe
 

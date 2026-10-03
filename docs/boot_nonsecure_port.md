@@ -724,6 +724,25 @@ calls the pointer at `0x020200a8`, while later paths use entries through at
 least `0x0202010c`; treating names or values from the Exynos990 reference as
 S5E9825 facts would be unsafe.
 
+Hardware validation passed on 2026-10-03 with artifact SHA-256
+`47c66efd33f70d4056317f7b5d63daafe3471598a7a1a86171fc229cbae46ce5`.
+All four records arrived in order, and the 384-byte capture has SHA-256
+`b11f7c34a187601acbca7b6e03c65be70d72ed632e2cc195ba4679d9c9f7b07a`.
+
+The captured pointer table is internally plausible: entries are aligned
+BootROM addresses, `0x020200dc` contains the independently confirmed receive
+entry `0x00000a3c`, and `0x020200e0` contains the independently confirmed USB
+initialization entry `0x000006e8`. The surrounding stage state is not suitable
+for execution. In particular, `0x02020030` contains `0x00de8e8f` instead of a
+bounded BL1 size, and `0x02020120..0x0202013c` contains values which are not
+valid iRAM stage bookkeeping. Calling the current EPBL with this state would
+derive an invalid destination and is therefore excluded.
+
+The next analysis step is to identify every captured BootROM function used by
+the Binary 9 EPBL and determine which state fields the legitimate BL1 path
+initializes before entering it. A later execution probe may write only fields
+whose meaning and value are established by that matched BootROM/EPBL pair.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
