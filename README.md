@@ -50,7 +50,7 @@ shown above.
 | `usb_out_state_probe` | Captures the BootROM EP2 and TRB state after event repair | Hardware tested on SM-N975F. The existing EP2 TRB remains hardware-owned. |
 | `usb_out_cancel_probe` | Cancels the stale EP2 transfer through the BootROM path and reports the TRB before and after | Hardware tested on SM-N975F. `ENDTRANSFER` succeeded and the TRB was cleared. |
 | `usb_receive_rearmed_probe` | Cancels the stale transfer, rearms EP2 OUT, and receives a bounded test frame | Hardware tested on SM-N975F. The framed transfer returned `RX1PASS!` and all 64 bytes matched. |
-| `epbl_receive_probe` | Receives and verifies the current Binary 9 EPBL in a bounded iRAM diagnostic area without executing it | Builds and passes host-side verification; hardware validation is pending. |
+| `epbl_receive_probe` | Receives and verifies the current Binary 9 EPBL in a bounded iRAM diagnostic area without executing it | Hardware tested on SM-N975F. The complete `0x3000`-byte EPBL returned `EPBPASS!`. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -185,9 +185,18 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
     --debug
 ```
 
-The expected result is `EPBRDY!!`, a `0x300a`-byte host write, then
-`EPBPASS!`. Hardware validation is required before this destination and
-full-size receive are used for a stage execution experiment.
+Hardware validation passed on 2026-10-03. The device returned `EPBRDY!!`, the
+host sent the complete `0x300a`-byte frame, and the device returned
+`EPBPASS!`. The final record reported BootROM return `1`, destination
+`0x02030000`, receive limit `0x3000`, matching FNV-1a values
+`0xfdfb55e38228e523`, and the expected first, second, and last qwords. The
+payload artifact has SHA-256
+`2b8cf71b910c4b296e0060c81c219c5f93bd52b712f570b053ec473a289a2db4`.
+The 192-byte two-record capture has SHA-256
+`db33e602f4429ce395ec8cabcaf9cf79ab4b71e5ed4d71043cef6b6ce7494a20`.
+This validates the diagnostic destination and complete EPBL transfer. It does
+not validate the stock EPBL load address, its expected iRAM state, or EPBL
+execution.
 
 ### Same-session USB receive probe
 

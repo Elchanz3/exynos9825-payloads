@@ -681,8 +681,8 @@ expected byte sequence beginning with `00 01 02 03 04 05 06 07` and
 `a0fadaba800998f7818ae775e0d7953a1434c1ca698819016a2f79e7e4cd36a5`.
 
 This closes the same-session transport prerequisite for bounded diagnostic
-loads. It does not yet validate a Samsung stage destination, a full-size stage
-transfer, stage execution, DRAM initialization, or Non-secure execution.
+loads. It does not yet validate a stock Samsung stage destination, stage
+execution, DRAM initialization, or Non-secure execution.
 
 `epbl_receive_probe` is the next diagnostic step. It uses the validated event
 repair, cancellation, arming, and polling sequence to receive the exact
@@ -692,6 +692,22 @@ The payload checks all received bytes with FNV-1a and verifies selected words
 at both ends of the file before returning `EPBPASS!`. The address remains a
 diagnostic receive area; the probe does not branch to it or promote it to a
 stock stage execution address.
+
+Hardware validation passed on 2026-10-03 with artifact SHA-256
+`2b8cf71b910c4b296e0060c81c219c5f93bd52b712f570b053ec473a289a2db4`.
+The device returned `EPBRDY!!`, accepted the complete `0x300a`-byte framed
+transfer, and returned `EPBPASS!`. The final record reported BootROM return
+`1`, destination `0x02030000`, receive limit `0x3000`, matching expected and
+computed FNV-1a values `0xfdfb55e38228e523`, first qword
+`0xb82c55e700000018`, zero second qword, last qword
+`0x17b84398a0c70f76`, and `CurrentEL = 0xc`. The 192-byte capture has SHA-256
+`db33e602f4429ce395ec8cabcaf9cf79ab4b71e5ed4d71043cef6b6ce7494a20`.
+
+This confirms complete Binary 9 EPBL reception in the diagnostic iRAM area.
+It does not establish `0x02030000` as the stock EPBL destination or entry
+point. Before executing the Samsung stage, the iRAM state and function-pointer
+table consumed by its early path must be captured and matched to the
+hardware-specific BootROM.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
