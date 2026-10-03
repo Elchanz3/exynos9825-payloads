@@ -743,6 +743,41 @@ the Binary 9 EPBL and determine which state fields the legitimate BL1 path
 initializes before entering it. A later execution probe may write only fields
 whose meaning and value are established by that matched BootROM/EPBL pair.
 
+Matching the captured table against the BootROM resolved the initial BL1
+metadata path. BootROM routine `0xc5e0` installs the 32-bit function-pointer
+table at `0x020200a0..0x0202011c`. The captured values match that table exactly.
+Routine `0xc7e4` initializes the word at `0x02020060`; its captured value of
+one is therefore expected and is not an EPBL-derived patch.
+
+The legitimate EUB receive path accepts a stage at `0x02022000` with an upper
+bound of `0x2b000`, then calls the header parser at `0x17c54`. That parser
+reads the first two 32-bit EPBL words, validates the block count, stores
+`block_count << 9` at `0x02020030`, stores the checksum at `0x02020034`, and
+clears the checksum word in the received header. For the exact Binary 9 EPBL,
+the inputs are block count `0x18` and checksum `0xb82c55e7`, producing the
+legitimate BL1 size `0x3000`. These values explain the expected size without
+copying metadata from another SoC.
+
+The following BootROM verification routine at `0xc9a0` has also been located,
+but is deliberately excluded from the next probe. It operates on the parsed
+stage and may invoke additional CryptoCell and status paths. Header parsing is
+tested independently before that larger call graph is considered.
+
+`epbl_header_probe` isolates this parser step. Its small entry stub copies a
+self-contained worker from the Houston area to `0x02025000`, invalidates the
+EL3 instruction cache, and continues there. The relocation starts immediately
+after the `0x3000`-byte stock EPBL destination range and contains the worker,
+its result record, its private EP1 TRB, and its literal pool. The worker uses
+the hardware-validated same-session receive recovery sequence, receives the
+exact pinned Binary 9 EPBL at `0x02022000`, verifies every raw byte with
+FNV-1a, and calls only BootROM parser `0x17c54`.
+
+A PASS requires parser return one, parsed size `0x3000`, parsed checksum
+`0xb82c55e7`, and first qword `0x18` after the parser clears the checksum word.
+The probe does not access the EPBL's first MMIO branch selector, call the
+BootROM verification routine, execute EPBL, initialize DRAM, change a security
+controller, or write persistent storage. Hardware validation is pending.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

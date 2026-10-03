@@ -52,6 +52,7 @@ shown above.
 | `usb_receive_rearmed_probe` | Cancels the stale transfer, rearms EP2 OUT, and receives a bounded test frame | Hardware tested on SM-N975F. The framed transfer returned `RX1PASS!` and all 64 bytes matched. |
 | `epbl_receive_probe` | Receives and verifies the current Binary 9 EPBL in a bounded iRAM diagnostic area without executing it | Hardware tested on SM-N975F. The complete `0x3000`-byte EPBL returned `EPBPASS!`. |
 | `epbl_state_probe` | Captures the complete iRAM state window consumed by the Binary 9 EPBL without calling its pointers | Hardware tested on SM-N975F. All four state records were received. |
+| `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Built and statically verified. Hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -226,6 +227,30 @@ receive pointer `0x00000a3c` at `0x020200dc` and USB initialization pointer
 execution: `0x02020030` is `0x00de8e8f`, while
 `0x02020120..0x0202013c` contains non-address data. The EPBL must not be called
 until the required fields are reconstructed from the matching Binary 9 path.
+
+### Binary 9 EPBL header probe
+
+`epbl_header_probe` validates the first legitimate stock-state reconstruction
+step without executing EPBL. It relocates a self-contained worker to
+`0x02025000`, receives the pinned Binary 9 EPBL at the BootROM destination
+`0x02022000`, verifies the complete raw file, and invokes only BootROM header
+parser `0x17c54`. The parser must derive size `0x3000`, preserve checksum
+`0xb82c55e7` in the BL1 state, and clear the checksum word in the received
+header.
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_header_probe.bin \
+    --receive-test \
+    --receive-file /path/to/N975FXXS9HWHA/epbl.bin \
+    --output /tmp/exynos9825_epbl_header_probe.bin \
+    --debug
+```
+
+The expected records are `EPHRDY!!` followed by `EPHPASS!`. This probe does
+not invoke the following BootROM verification path or transfer control to the
+Samsung stage. Hardware validation is pending.
 
 ### Same-session USB receive probe
 

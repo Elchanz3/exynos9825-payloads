@@ -27,6 +27,9 @@ RX_CANCEL_MAGIC = b"RX1CANC!"
 EPBL_READY_MAGIC = b"EPBRDY!!"
 EPBL_PASS_MAGIC = b"EPBPASS!"
 EPBL_FAIL_MAGIC = b"EPBFAIL!"
+EPBL_HEADER_READY_MAGIC = b"EPHRDY!!"
+EPBL_HEADER_PASS_MAGIC = b"EPHPASS!"
+EPBL_HEADER_FAIL_MAGIC = b"EPHFAIL!"
 EPBL_STATE_MAGICS = {
     b"EPS0IRAM": 0x02020000,
     b"EPS1IRAM": 0x02020050,
@@ -126,6 +129,19 @@ EPBL_FIELDS = (
     "CurrentEL",
 )
 
+EPBL_HEADER_FIELDS = (
+    "status",
+    "ENDTRANSFER return",
+    "relocation address",
+    "EPBL destination",
+    "computed raw FNV-1a",
+    "header parser return",
+    "parsed BL1 size",
+    "parsed BL1 checksum",
+    "first qword after parse",
+    "CurrentEL",
+)
+
 
 def decode_record(data: bytes):
     if len(data) != RECORD_SIZE:
@@ -162,6 +178,12 @@ def decode_record(data: bytes):
         fields = RX_CANCEL_FIELDS
     elif magic in (EPBL_READY_MAGIC, EPBL_PASS_MAGIC, EPBL_FAIL_MAGIC):
         fields = EPBL_FIELDS
+    elif magic in (
+        EPBL_HEADER_READY_MAGIC,
+        EPBL_HEADER_PASS_MAGIC,
+        EPBL_HEADER_FAIL_MAGIC,
+    ):
+        fields = EPBL_HEADER_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
 
@@ -176,14 +198,23 @@ def decode_record(data: bytes):
     if magic == EL3_MAGIC:
         return True
 
-    if magic in (RX_READY_MAGIC, RX_ARMED_MAGIC, EPBL_READY_MAGIC):
+    if magic in (
+        RX_READY_MAGIC,
+        RX_ARMED_MAGIC,
+        EPBL_READY_MAGIC,
+        EPBL_HEADER_READY_MAGIC,
+    ):
         checkpoint = (
-            "EP2 OUT armed; waiting for Binary 9 EPBL"
-            if magic == EPBL_READY_MAGIC
+            "relocated worker armed EP2 OUT at the stock EPBL destination"
+            if magic == EPBL_HEADER_READY_MAGIC
             else (
-                "EP2 OUT armed; waiting for framed transfer"
-                if magic == RX_ARMED_MAGIC
-                else "waiting for framed EP2 OUT transfer"
+                "EP2 OUT armed; waiting for Binary 9 EPBL"
+                if magic == EPBL_READY_MAGIC
+                else (
+                    "EP2 OUT armed; waiting for framed transfer"
+                    if magic == RX_ARMED_MAGIC
+                    else "waiting for framed EP2 OUT transfer"
+                )
             )
         )
         print(f"checkpoint            = {checkpoint}")
@@ -226,6 +257,23 @@ def decode_record(data: bytes):
             and values[9] == 0xC
         )
         print(f"EPBL receive result  = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic in (EPBL_HEADER_PASS_MAGIC, EPBL_HEADER_FAIL_MAGIC):
+        passed = (
+            magic == EPBL_HEADER_PASS_MAGIC
+            and values[0] == 1
+            and values[1] == 1
+            and values[2] == 0x02025000
+            and values[3] == 0x02022000
+            and values[4] == 0xFDFB55E38228E523
+            and values[5] == 1
+            and values[6] == 0x3000
+            and values[7] == 0xB82C55E7
+            and values[8] == 0x18
+            and values[9] == 0xC
+        )
+        print(f"EPBL header result   = {'PASS' if passed else 'FAIL'}")
         return passed
 
     if magic in (RX_PASS_MAGIC, RX_FAIL_MAGIC):
@@ -316,6 +364,8 @@ def read_probe_records(device, usb_core) -> bytes:
             RX_CANCEL_MAGIC,
             EPBL_PASS_MAGIC,
             EPBL_FAIL_MAGIC,
+            EPBL_HEADER_PASS_MAGIC,
+            EPBL_HEADER_FAIL_MAGIC,
             b"EPS3IRAM",
         ):
             break
@@ -354,14 +404,19 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         raise RuntimeError(
             f"received 0x{len(ready):x} ready bytes, expected 0x{RECORD_SIZE:x}"
         )
-    if ready[:8] in (RX_FAIL_MAGIC, EPBL_FAIL_MAGIC):
+    if ready[:8] in (RX_FAIL_MAGIC, EPBL_FAIL_MAGIC, EPBL_HEADER_FAIL_MAGIC):
         print(f"Received record 1: {ready[:8]!r}")
         return ready
-    if ready[:8] not in (RX_READY_MAGIC, RX_ARMED_MAGIC, EPBL_READY_MAGIC):
+    if ready[:8] not in (
+        RX_READY_MAGIC,
+        RX_ARMED_MAGIC,
+        EPBL_READY_MAGIC,
+        EPBL_HEADER_READY_MAGIC,
+    ):
         raise RuntimeError(f"unexpected receive-probe marker {ready[:8]!r}")
 
     print(f"Received record 1: {ready[:8]!r}")
-    if ready[:8] == EPBL_READY_MAGIC:
+    if ready[:8] in (EPBL_READY_MAGIC, EPBL_HEADER_READY_MAGIC):
         if receive_payload is None:
             raise RuntimeError("EPBL probe requires --receive-file")
         transfer = receive_payload
@@ -393,6 +448,8 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         RX_FAIL_MAGIC,
         EPBL_PASS_MAGIC,
         EPBL_FAIL_MAGIC,
+        EPBL_HEADER_PASS_MAGIC,
+        EPBL_HEADER_FAIL_MAGIC,
     ):
         raise RuntimeError(f"unexpected receive result {result[:8]!r}")
     print(f"Received record 2: {result[:8]!r}")
