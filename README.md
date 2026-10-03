@@ -41,7 +41,7 @@ shown above.
 | `dump_bootrom` | Sends BootROM as two sequential `0x10000` EP1 IN transfers | Hardware tested on SM-N975F. The new build is byte-identical to the validated binary. |
 | `houston_marker` | Sends `HOUSTON!` over EP1 IN after callback hijack | Hardware tested on SM-N975F through Houston. `HOUSTON!` was received on the existing EP1 IN session. |
 | `boot_nonsecure_probe` | Reports EL3 and EL2 architectural state without leaving Secure EL3 | Hardware tested on SM-N975F through Houston. |
-| `nonsecure_transition_probe` | Attempts a minimal EL3 to Non-secure EL2h transition at the Binary 9 sboot address | Builds and passes host-side verification; hardware validation is pending. |
+| `nonsecure_transition_probe` | Diagnoses access to the Binary 9 sboot address before a minimal EL3 to Non-secure EL2h transition | Hardware tested on SM-N975F. Execution stops at the first access to `0xbfe80000`, before `ERET`. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -110,17 +110,20 @@ accessing the candidate DRAM address, a Non-secure instruction abort, and a
 copy mismatch. The test is volatile and does not load Samsung stages or write
 persistent storage.
 
-The first hardware attempt produced no USB record after the callback overwrite.
-The current revision sends `NS2PRE!!` before touching candidate DRAM,
-`NS2COPY!` after successful write/readback, and `NS2ERET!` immediately before
-the transition. This separates a stalled DRAM access from a later exception.
+The checkpoint revision was hardware-tested on 2026-10-03. It returned only
+`NS2PRE!!`, with `CurrentEL = 0xc`, then stopped at the first access to
+`0xbfe80000`. It did not reach `NS2COPY!` or `NS2ERET!`, so this run never
+executed `ERET`. The candidate sboot address is not usable in the initial
+BootROM/Houston state; the stock boot stage that initializes DRAM must be
+identified before another transition attempt.
 
 Run it with:
 
 ```sh
-sudo "$(command -v python3)" tools/boot_nonsecure_probe.py \
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
     --payload build/nonsecure_transition_probe.bin \
-    --output /tmp/exynos9825_nonsecure_transition_probe.bin \
+    --output /tmp/exynos9825_nonsecure_transition_checkpoints.bin \
     --debug
 ```
 

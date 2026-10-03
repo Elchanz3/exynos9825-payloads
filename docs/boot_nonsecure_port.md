@@ -461,8 +461,24 @@ returned no USB record after the callback overwrite. Since that revision first
 accessed `0xbfe80000` before reporting, the result did not distinguish a stalled
 or asynchronous DRAM access from an earlier payload failure. The instrumented
 revision emits `NS2PRE!!` before candidate DRAM access, `NS2COPY!` after
-write/readback, and `NS2ERET!` immediately before exception return. Hardware
-validation of those checkpoints is pending.
+write/readback, and `NS2ERET!` immediately before exception return.
+
+The instrumented revision, artifact SHA-256
+`4153ff9861e437dfb5357736a0ad5ffb23d2e185176b78545633094bb191bbb3`,
+was tested on the SM-N975F on 2026-10-03. The host received exactly one
+record, `NS2PRE!!`, before the payload attempted to access `0xbfe80000`. The
+record contained `CurrentEL = 0xc`, the original `SCR_EL3 = 0`, the original
+`VBAR_EL3 = 0x1c000`, and zero exception state. Its raw capture is 96 bytes
+with SHA-256
+`36e9dbe3d2d0abc24ab53029dbfd670ed65a8caddcbeeb440738e0469ec375c2`.
+
+No `NS2COPY!`, `NS2ERET!`, exception record, or terminal result followed.
+The first Secure EL3 access to the sboot-linked address therefore did not
+complete in the BootROM/Houston environment. The test did not execute `ERET`
+and provides no new Non-secure fetch result. This is consistent with DRAM not
+yet being initialized or available at this early boot point. Static analysis
+of the current Binary 9 EPBL/FWBL1/BL2 chain must identify the responsible
+initialization stage before the address is tested again.
 
 No full Samsung stage receive should be combined with this test. A PASS means
 the lower-EL stub fetched and reached EL3 through SMC. Any instruction abort,
@@ -495,10 +511,11 @@ status patches, USB PHY writes, and all guessed TZPC/TZASC programming.
 
 ## Gates before implementation
 
-Stage 1 is hardware-confirmed. Stage 2 can now test the reviewed candidate
-region `0xbfe80000`, while treating both EL3 data access and Non-secure fetch
-as possible abort points. Stage 3 is blocked on all of the following:
+Stage 1 is hardware-confirmed. Stage 2 reached its pre-access checkpoint and
+then stopped at the first access to `0xbfe80000`; it never attempted the
+Non-secure transition. Stage 2 and Stage 3 are blocked on all of the following:
 
+- identification and safe execution of the stock DRAM initialization path;
 - hardware confirmation of non-secure instruction fetch and SMC return;
 - the exact lower-EL target and execution level;
 - the monitor or security-controller sequence that makes that target usable;
