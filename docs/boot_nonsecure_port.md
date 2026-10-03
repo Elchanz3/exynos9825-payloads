@@ -427,7 +427,14 @@ The port should proceed as three independently testable stages.
 The `0x60`-byte record begins with magic `NSP1EL3!`, version and size words,
 then ten 64-bit little-endian fields. The accompanying host tool runs the
 Houston upload and callback overwrite on the existing USB session and decodes
-the result. Hardware validation of this probe is pending.
+the result.
+
+Hardware validation on the SM-N975F returned `CurrentEL = 0xc`,
+`SCR_EL3 = 0`, `SCTLR_EL3 = 0x00c51838`, `TCR_EL3 = 0`, `HCR_EL2 = 2`,
+`SCTLR_EL2 = 0x30c50838`, `ID_AA64PFR0_EL1 = 0x10112222`, and
+`VBAR_EL3 = 0x1c000`. EL3 therefore had its MMU and D-cache disabled and its
+I-cache enabled. Since `TCR_EL3` was zero, the nonzero `TTBR0_EL3` and
+`MAIR_EL3` values do not describe an active translation regime.
 
 ### Stage 2: minimal non-secure transition probe
 
@@ -477,9 +484,9 @@ status patches, USB PHY writes, and all guessed TZPC/TZASC programming.
 
 ## Gates before implementation
 
-Stage 1 is implemented and awaits hardware validation. Stage 2 is blocked on
-that result and on choosing and reviewing a legitimate candidate region,
-currently `0xbfe80000`. Stage 3 is blocked on all of the following:
+Stage 1 is hardware-confirmed. Stage 2 can now test the reviewed candidate
+region `0xbfe80000`, while treating both EL3 data access and Non-secure fetch
+as possible abort points. Stage 3 is blocked on all of the following:
 
 - hardware confirmation of non-secure instruction fetch and SMC return;
 - the exact lower-EL target and execution level;

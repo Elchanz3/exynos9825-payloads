@@ -40,7 +40,7 @@ shown above.
 | --- | --- | --- |
 | `dump_bootrom` | Sends BootROM as two sequential `0x10000` EP1 IN transfers | Hardware tested on SM-N975F. The new build is byte-identical to the validated binary. |
 | `houston_marker` | Sends `HOUSTON!` over EP1 IN after callback hijack | Hardware tested on SM-N975F through Houston. `HOUSTON!` was received on the existing EP1 IN session. |
-| `boot_nonsecure_probe` | Reports EL3 and EL2 architectural state without leaving Secure EL3 | Builds and passes host-side verification; hardware validation is pending. |
+| `boot_nonsecure_probe` | Reports EL3 and EL2 architectural state without leaving Secure EL3 | Hardware tested on SM-N975F through Houston. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -81,6 +81,13 @@ the EL3 translation state, the relevant EL2 state, `ID_AA64PFR0_EL1`, and
 `VBAR_EL3`. Using the resolved interpreter path is required when the Houston
 dependencies are installed in an active virtual environment: plain
 `sudo python3` normally selects root's system Python instead.
+
+The probe was hardware-tested on 2026-10-03. It reported Secure EL3 with MMU
+and D-cache disabled, I-cache enabled, `SCR_EL3 = 0`, `HCR_EL2 = 2`,
+`SCTLR_EL2 = 0x30c50838`, `ID_AA64PFR0_EL1 = 0x10112222`, and
+`VBAR_EL3 = 0x1c000`. `TCR_EL3` was zero, so the observed `TTBR0_EL3` and
+`MAIR_EL3` contents are inactive stale state rather than an active EL3
+translation regime.
 
 Decode an already captured record without accessing USB:
 
