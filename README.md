@@ -40,6 +40,11 @@ shown above.
 | --- | --- | --- |
 | `dump_bootrom` | Sends BootROM as two sequential `0x10000` EP1 IN transfers | Hardware tested on SM-N975F. The new build is byte-identical to the validated binary. |
 | `houston_marker` | Sends `HOUSTON!` over EP1 IN after callback hijack | Hardware tested on SM-N975F through Houston. `HOUSTON!` was received on the existing EP1 IN session. |
+| `boot_nonsecure_probe` | Reports EL3 and EL2 architectural state without leaving Secure EL3 | Builds and passes host-side verification; hardware validation is pending. |
+
+The non-secure port plan, reference address inventory, and current Binary 9
+reverse-engineering results are documented in
+[`docs/boot_nonsecure_port.md`](docs/boot_nonsecure_port.md).
 
 ### Houston marker validation
 
@@ -56,6 +61,31 @@ shared DWC3 sender, TRB configuration, and EP1 IN path on S5E9825.
 
 The BootROM dumper deliberately retains its standalone, known-good assembly
 instead of being refactored onto the common sender before another device test.
+
+### EL3 state probe
+
+`boot_nonsecure_probe` is the first diagnostic step toward a non-secure boot
+path. It stays in Secure EL3 and only reads architectural registers. It does
+not execute `ERET`, change `SCR_EL3`, or access a security controller.
+
+With the Houston checkout next to this repository, run:
+
+```sh
+sudo python3 tools/boot_nonsecure_probe.py --debug
+```
+
+The tool uses Houston's payload upload and callback-overwrite functions on the
+existing USB session. It saves a versioned `0x60`-byte record to
+`/tmp/exynos9825_boot_nonsecure_probe.bin` and prints `CurrentEL`, `SCR_EL3`,
+the EL3 translation state, the relevant EL2 state, `ID_AA64PFR0_EL1`, and
+`VBAR_EL3`.
+
+Decode an already captured record without accessing USB:
+
+```sh
+python3 tools/boot_nonsecure_probe.py \
+    --decode /tmp/exynos9825_boot_nonsecure_probe.bin
+```
 
 ## Build
 

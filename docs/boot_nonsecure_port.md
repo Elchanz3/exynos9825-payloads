@@ -414,21 +414,20 @@ The port should proceed as three independently testable stages.
 
 ### Stage 1: read-only EL3 state probe
 
-Add `payloads/boot_nonsecure_probe.S` as a Houston payload linked at
-`0x02022000` with the required four leading NOP instructions. It should:
+`payloads/boot_nonsecure_probe.S` is implemented as a Houston payload linked at
+`0x02022000` with the required four leading NOP instructions. It:
 
-- remain entirely in secure EL3;
-- read `CurrentEL`, `SCR_EL3`, `SCTLR_EL3`, `HCR_EL2`, `SCTLR_EL2`, and the
+- remains entirely in secure EL3;
+- reads `CurrentEL`, `SCR_EL3`, `SCTLR_EL3`, `HCR_EL2`, `SCTLR_EL2`, and the
   relevant feature register;
-- optionally read candidate Samsung descriptor/state locations only after the
-  static analysis gives each field a clear purpose;
-- emit one versioned, fixed-size binary record through the already validated
+- emits one versioned, fixed-size binary record through the already validated
   EP1 IN sender;
-- make no peripheral, security-controller, storage, or persistent-state write.
+- makes no peripheral, security-controller, storage, or persistent-state write.
 
-The fixed record should begin with a short magic and version, followed by
-64-bit little-endian fields. A host decoder can print the values without
-putting formatting code in the payload.
+The `0x60`-byte record begins with magic `NSP1EL3!`, version and size words,
+then ten 64-bit little-endian fields. The accompanying host tool runs the
+Houston upload and callback overwrite on the existing USB session and decodes
+the result. Hardware validation of this probe is pending.
 
 ### Stage 2: minimal non-secure transition probe
 
@@ -478,10 +477,9 @@ status patches, USB PHY writes, and all guessed TZPC/TZASC programming.
 
 ## Gates before implementation
 
-Stage 1 can be implemented from already confirmed transport and system-register
-facts after this document is reviewed. Stage 2 is blocked on choosing and
-reviewing a legitimate candidate region, currently `0xbfe80000`. Stage 3 is
-blocked on all of the following:
+Stage 1 is implemented and awaits hardware validation. Stage 2 is blocked on
+that result and on choosing and reviewing a legitimate candidate region,
+currently `0xbfe80000`. Stage 3 is blocked on all of the following:
 
 - hardware confirmation of non-secure instruction fetch and SMC return;
 - the exact lower-EL target and execution level;

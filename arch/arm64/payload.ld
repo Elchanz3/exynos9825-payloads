@@ -7,6 +7,12 @@ MEMORY
     payload (rwx) : ORIGIN = 0x02022000, LENGTH = 0x2800
 }
 
+PHDRS
+{
+    text PT_LOAD FLAGS(5);
+    data PT_LOAD FLAGS(6);
+}
+
 SECTIONS
 {
     . = ORIGIN(payload);
@@ -15,17 +21,17 @@ SECTIONS
     {
         KEEP(*(.text.entry))
         *(.text*)
-    } > payload
+    } > payload :text
 
     .rodata :
     {
         *(.rodata*)
-    } > payload
+    } > payload :text
 
     .data :
     {
         *(.data*)
-    } > payload
+    } > payload :data
 
     __payload_end = .;
 
