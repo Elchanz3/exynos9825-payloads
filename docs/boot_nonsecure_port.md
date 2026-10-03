@@ -569,6 +569,15 @@ next diagnostic must restore the observed original callback `0x1b2c`, process
 the current event through that handler, advance the software event index, and
 use the BootROM acknowledgement helper before entering the receive loop.
 
+`usb_receive_event_probe` implements that sequence without adding direct DWC3
+register writes. It uses the hardware-observed USB state pointer
+`0x02021970`, the hardware-observed original callback `0x1b2c`, and the event
+acknowledgement helper `0x2fbc` identified in the matching BootROM dump. The
+helper writes the four-byte acknowledgement used by the dispatcher itself.
+The probe records the software event index and triggering event word, then
+performs the same bounded iRAM receive. These BootROM-derived operations remain
+local to the diagnostic until hardware validation.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

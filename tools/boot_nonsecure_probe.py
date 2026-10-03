@@ -56,8 +56,8 @@ RX_FIELDS = (
     "received bytes 0..7",
     "received bytes 8..15",
     "CurrentEL",
-    "reserved 0",
-    "reserved 1",
+    "software event index",
+    "trigger event word",
 )
 
 
