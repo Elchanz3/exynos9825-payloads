@@ -663,6 +663,14 @@ returned `1`, and the buffer, size, and control fields were all zero after
 This validates the volatile recovery sequence required before another EP2
 receive can be armed.
 
+`usb_receive_rearmed_probe` is the next bounded transport test. It performs
+the validated event repair and EP2 cancellation, rejects a failed endpoint
+command or uncleared TRB, configures the same `0x100`-byte iRAM receive bound,
+and calls `0x1174`. It emits `RX1ARM!!` only after arming returns. The host may
+then submit the existing `0x4a`-byte DNW test frame. The probe polls the
+BootROM event dispatcher and reports `RX1PASS!` only if the completion flag
+and all 64 payload bytes match.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

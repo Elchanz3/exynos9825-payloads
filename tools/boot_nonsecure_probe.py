@@ -280,6 +280,9 @@ def run_receive_probe(device, usb_core) -> bytes:
         raise RuntimeError(
             f"received 0x{len(ready):x} ready bytes, expected 0x{RECORD_SIZE:x}"
         )
+    if ready[:8] == RX_FAIL_MAGIC:
+        print(f"Received record 1: {ready[:8]!r}")
+        return ready
     if ready[:8] not in (RX_READY_MAGIC, RX_ARMED_MAGIC):
         raise RuntimeError(f"unexpected receive-probe marker {ready[:8]!r}")
 
@@ -293,7 +296,7 @@ def run_receive_probe(device, usb_core) -> bytes:
     result = read_probe_record(device, usb_core)
     if len(result) != RECORD_SIZE:
         print(
-            f"Receive probe stopped after RX1RDY!!: got 0x{len(result):x} "
+            f"Receive probe stopped after {ready[:8]!r}: got 0x{len(result):x} "
             f"result bytes, expected 0x{RECORD_SIZE:x}",
             file=sys.stderr,
         )

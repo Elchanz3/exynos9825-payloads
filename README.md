@@ -49,6 +49,7 @@ shown above.
 | `usb_receive_armed_probe` | Arms EP2 OUT before requesting the bounded host transfer | Hardware tested on SM-N975F. Execution stopped inside the arming path before `RX1ARM!!`. |
 | `usb_out_state_probe` | Captures the BootROM EP2 and TRB state after event repair | Hardware tested on SM-N975F. The existing EP2 TRB remains hardware-owned. |
 | `usb_out_cancel_probe` | Cancels the stale EP2 transfer through the BootROM path and reports the TRB before and after | Hardware tested on SM-N975F. `ENDTRANSFER` succeeded and the TRB was cleared. |
+| `usb_receive_rearmed_probe` | Cancels the stale transfer, rearms EP2 OUT, and receives a bounded test frame | Builds and passes host-side verification; hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -139,6 +140,19 @@ buffer `0x02021570`, size `0x200`, and control `0x813`. `ENDTRANSFER` returned
 `1`, and all three TRB fields were zero after the BootROM clear helper. The
 96-byte raw record has SHA-256
 `923ea0b41d93d2168c85b8f2d47962522bbb989cfcc60b27d8ea4e65316bdc1d`.
+
+`usb_receive_rearmed_probe` applies that validated cancellation before calling
+the BootROM receive arming helper. It sends `RX1ARM!!` only after `0x1174`
+returns. The host then submits the bounded `0x4a`-byte DNW frame:
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/usb_receive_rearmed_probe.bin \
+    --receive-test \
+    --output /tmp/exynos9825_usb_receive_rearmed_probe.bin \
+    --debug
+```
 
 ### Same-session USB receive probe
 
