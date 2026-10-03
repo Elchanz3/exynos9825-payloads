@@ -213,13 +213,37 @@ def run_receive_probe(device, usb_core) -> bytes:
 
     result = read_probe_record(device, usb_core)
     if len(result) != RECORD_SIZE:
+        print(
+            f"Receive probe stopped after RX1RDY!!: got 0x{len(result):x} "
+            f"result bytes, expected 0x{RECORD_SIZE:x}",
+            file=sys.stderr,
+        )
+        return ready
+    if result[:8] not in (RX_PASS_MAGIC, RX_FAIL_MAGIC):
+        raise RuntimeError(f"unexpected receive result {result[:8]!r}")
+    print(f"Received record 2: {result[:8]!r}")
+    return ready + result
+
+
+def run_direct_receive_probe(device, usb_core) -> bytes:
+    frame = make_dnw_frame(RX_PATTERN)
+    written = device.write(0x02, frame, timeout=5000)
+    if written != len(frame):
+        raise RuntimeError(f"short EP2 OUT write: 0x{written:x}/0x{len(frame):x}")
+    print(
+        "Sent framed test pattern without a preceding EP1 marker: "
+        f"0x{written:x} bytes"
+    )
+
+    result = read_probe_record(device, usb_core)
+    if len(result) != RECORD_SIZE:
         raise RuntimeError(
             f"received 0x{len(result):x} result bytes, expected 0x{RECORD_SIZE:x}"
         )
     if result[:8] not in (RX_PASS_MAGIC, RX_FAIL_MAGIC):
         raise RuntimeError(f"unexpected receive result {result[:8]!r}")
-    print(f"Received record 2: {result[:8]!r}")
-    return ready + result
+    print(f"Received record 1: {result[:8]!r}")
+    return result
 
 
 def run_live(args) -> bytes:
@@ -277,7 +301,9 @@ def run_live(args) -> bytes:
             parameters["usb_struct_offset"],
         )
 
-        if args.receive_test:
+        if args.receive_test_direct:
+            data = run_direct_receive_probe(device, usb.core)
+        elif args.receive_test:
             data = run_receive_probe(device, usb.core)
         else:
             data = read_probe_records(device, usb.core)
@@ -313,6 +339,11 @@ def parse_args():
         help="send the framed test pattern requested by usb_receive_probe",
     )
     parser.add_argument(
+        "--receive-test-direct",
+        action="store_true",
+        help="send the framed test pattern without waiting for an EP1 marker",
+    )
+    parser.add_argument(
         "--payload",
         type=Path,
         default=root / "build" / "boot_nonsecure_probe.bin",
@@ -335,7 +366,10 @@ def parse_args():
         action="store_true",
         help="show Houston iRAM hexdumps",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.receive_test and args.receive_test_direct:
+        parser.error("--receive-test and --receive-test-direct are mutually exclusive")
+    return args
 
 
 def main() -> int:

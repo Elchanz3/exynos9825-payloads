@@ -42,7 +42,8 @@ shown above.
 | `houston_marker` | Sends `HOUSTON!` over EP1 IN after callback hijack | Hardware tested on SM-N975F through Houston. `HOUSTON!` was received on the existing EP1 IN session. |
 | `boot_nonsecure_probe` | Reports EL3 and EL2 architectural state without leaving Secure EL3 | Hardware tested on SM-N975F through Houston. |
 | `nonsecure_transition_probe` | Diagnoses access to the Binary 9 sboot address before a minimal EL3 to Non-secure EL2h transition | Hardware tested on SM-N975F. Execution stops at the first access to `0xbfe80000`, before `ERET`. |
-| `usb_receive_probe` | Tests a bounded BootROM receive on the existing Houston USB session | Builds and passes host-side verification; hardware validation is pending. |
+| `usb_receive_probe` | Tests a bounded BootROM receive after an EP1 ready marker | Hardware tested on SM-N975F. `RX1RDY!!` was received and the host write completed, but the BootROM receive did not return. |
+| `usb_receive_direct_probe` | Repeats the bounded receive without a preceding EP1 transfer | Builds and passes host-side verification; hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -136,6 +137,12 @@ through the BootROM receive core at `0x11cc`, verifies it in iRAM, and reports
 this diagnostic and is not promoted to a platform constant before hardware
 validation. The probe performs no persistent write.
 
+The first hardware test received `RX1RDY!!` and completed the host-side
+`0x4a`-byte EP2 OUT write, but returned no terminal record. This means the
+payload reached the receive checkpoint; it does not prove that the BootROM
+consumed the transfer. The call at `0x11cc` did not return during the capture.
+The probe runner now preserves the ready record when this failure repeats.
+
 Run it with:
 
 ```sh
@@ -144,6 +151,20 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
     --payload build/usb_receive_probe.bin \
     --receive-test \
     --output /tmp/exynos9825_usb_receive_probe.bin \
+    --debug
+```
+
+`usb_receive_direct_probe` isolates one possible cause of that result. It
+enters the same BootROM receive core without first submitting an EP1 IN
+transfer, while the host sends the same DNW frame immediately after Houston's
+callback overwrite. Run it with:
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/usb_receive_direct_probe.bin \
+    --receive-test-direct \
+    --output /tmp/exynos9825_usb_receive_direct_probe.bin \
     --debug
 ```
 

@@ -537,6 +537,21 @@ limit`) and asks the host for one normally framed DNW transfer after sending an
 64-byte pattern remain local to the probe. A hardware PASS is required before
 this receive path can be used to feed a Samsung stage.
 
+The first hardware test on 2026-10-03 received `RX1RDY!!`. The host then
+reported a complete `0x4a`-byte EP2 OUT write, but no `RX1PASS!` or `RX1FAIL!`
+record followed. The result proves execution through the ready checkpoint and
+host submission of the frame. It does not prove that the BootROM parsed the
+frame or wrote the destination buffer. The call at `0x11cc` did not return
+during the observation window, so same-session BootROM receive remains
+unvalidated.
+
+`usb_receive_direct_probe` changes one condition: it does not send an EP1 IN
+checkpoint before calling `0x11cc`. The host submits the same DNW frame
+immediately after Houston completes the callback overwrite. This checks
+whether a pending completion event from the ready marker interfered with the
+BootROM event loop. It retains the same iRAM destination, bound, pattern, and
+receive entry point. No Samsung boot stage is sent by this diagnostic.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
