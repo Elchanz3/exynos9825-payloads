@@ -52,7 +52,7 @@ shown above.
 | `usb_receive_rearmed_probe` | Cancels the stale transfer, rearms EP2 OUT, and receives a bounded test frame | Hardware tested on SM-N975F. The framed transfer returned `RX1PASS!` and all 64 bytes matched. |
 | `epbl_receive_probe` | Receives and verifies the current Binary 9 EPBL in a bounded iRAM diagnostic area without executing it | Hardware tested on SM-N975F. The complete `0x3000`-byte EPBL returned `EPBPASS!`. |
 | `epbl_state_probe` | Captures the complete iRAM state window consumed by the Binary 9 EPBL without calling its pointers | Hardware tested on SM-N975F. All four state records were received. |
-| `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Built and statically verified. Hardware validation is pending. |
+| `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Hardware tested on SM-N975F. No `EPHRDY!!` record returned, so execution stopped before the receive checkpoint. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -250,7 +250,13 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
 
 The expected records are `EPHRDY!!` followed by `EPHPASS!`. This probe does
 not invoke the following BootROM verification path or transfer control to the
-Samsung stage. Hardware validation is pending.
+Samsung stage.
+
+The first hardware run on 2026-10-03 returned zero ready bytes. The host did
+not send EPBL, so neither the BootROM parser nor Samsung code ran. The new
+operations before the missing checkpoint are the worker copy, EL3 instruction
+cache invalidation, and first instruction fetch at `0x02025000`. These steps
+must be isolated before the header probe is attempted again.
 
 ### Same-session USB receive probe
 

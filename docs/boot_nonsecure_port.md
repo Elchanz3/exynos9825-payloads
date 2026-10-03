@@ -776,7 +776,15 @@ A PASS requires parser return one, parsed size `0x3000`, parsed checksum
 `0xb82c55e7`, and first qword `0x18` after the parser clears the checksum word.
 The probe does not access the EPBL's first MMIO branch selector, call the
 BootROM verification routine, execute EPBL, initialize DRAM, change a security
-controller, or write persistent storage. Hardware validation is pending.
+controller, or write persistent storage.
+
+The first hardware run on 2026-10-03 returned no `EPHRDY!!` record. Because
+the host waits for that record, no EPBL bytes were submitted and parser
+`0x17c54` was not called. The failure is bounded to the operations introduced
+before the ready record: copying the worker, invalidating the EL3 instruction
+cache, fetching from `0x02025000`, or the initial worker setup before its USB
+send. A smaller relocation-only diagnostic is required before this probe can
+be retried.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
