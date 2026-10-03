@@ -585,6 +585,11 @@ not disprove the dispatcher analysis because the payload had no checkpoint
 between repairing the event and entering `0x11cc`. A smaller probe must perform
 the repair and report immediately, without starting an OUT transfer.
 
+`usb_event_repair_probe` is that isolated checkpoint. It restores and invokes
+the original callback, advances and acknowledges the triggering event, then
+sends `RX1EVT!!` through the validated EP1 IN sender. It performs no receive.
+The record preserves the event index and event word observed at payload entry.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

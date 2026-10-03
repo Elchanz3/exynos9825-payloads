@@ -19,6 +19,7 @@ NS_CHECKPOINTS = {
 RX_READY_MAGIC = b"RX1RDY!!"
 RX_PASS_MAGIC = b"RX1PASS!"
 RX_FAIL_MAGIC = b"RX1FAIL!"
+RX_EVENT_MAGIC = b"RX1EVT!!"
 RX_PATTERN = bytes(range(0x40))
 RECORD_SIZE = 0x60
 EL3_FIELDS = (
@@ -60,6 +61,19 @@ RX_FIELDS = (
     "trigger event word",
 )
 
+RX_EVENT_FIELDS = (
+    "status",
+    "software event index after repair",
+    "reserved 0",
+    "reserved 1",
+    "reserved 2",
+    "reserved 3",
+    "reserved 4",
+    "CurrentEL",
+    "software event index at entry",
+    "trigger event word",
+)
+
 
 def decode_record(data: bytes):
     if len(data) != RECORD_SIZE:
@@ -79,6 +93,8 @@ def decode_record(data: bytes):
         fields = NS_FIELDS
     elif magic in (RX_READY_MAGIC, RX_PASS_MAGIC, RX_FAIL_MAGIC):
         fields = RX_FIELDS
+    elif magic == RX_EVENT_MAGIC:
+        fields = RX_EVENT_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
 
@@ -96,6 +112,11 @@ def decode_record(data: bytes):
     if magic == RX_READY_MAGIC:
         print("checkpoint            = waiting for framed EP2 OUT transfer")
         return None
+
+    if magic == RX_EVENT_MAGIC:
+        passed = values[0] == 1
+        print(f"event repair result  = {'PASS' if passed else 'FAIL'}")
+        return passed
 
     if magic in (RX_PASS_MAGIC, RX_FAIL_MAGIC):
         passed = magic == RX_PASS_MAGIC and values[0] == 1 and values[1] == 1
@@ -180,6 +201,7 @@ def read_probe_records(device, usb_core) -> bytes:
             NS_FAIL_MAGIC,
             RX_PASS_MAGIC,
             RX_FAIL_MAGIC,
+            RX_EVENT_MAGIC,
         ):
             break
 
