@@ -39,7 +39,20 @@ shown above.
 | Payload | Purpose | Status |
 | --- | --- | --- |
 | `dump_bootrom` | Sends BootROM as two sequential `0x10000` EP1 IN transfers | Hardware tested on SM-N975F. The new build is byte-identical to the validated binary. |
-| `houston_marker` | Sends `HOUSTON!` over EP1 IN after callback hijack | The transfer method and earlier standalone marker are hardware tested. This refactored build requires a device retest. |
+| `houston_marker` | Sends `HOUSTON!` over EP1 IN after callback hijack | Hardware tested on SM-N975F through Houston. `HOUSTON!` was received on the existing EP1 IN session. |
+
+### Houston marker validation
+
+The current `build/houston_marker.bin` was validated on hardware on 2026-10-03:
+
+- size: `0x98` (152 bytes)
+- SHA-256: `b8451fc128cbe9f2fe0d2d42eaf0e2aa0039f10c8d90c3e8f412ae1c305b9b33`
+- Houston detected `Exynos9820`, leaked iRAM, changed the callback from
+  `0x00001b2c` to `0x02022000`, and triggered the payload
+- the host received `HOUSTON!` through EP1 IN
+
+This confirms the fixed-address entry, four-NOP layout, callback execution,
+shared DWC3 sender, TRB configuration, and EP1 IN path on S5E9825.
 
 The BootROM dumper deliberately retains its standalone, known-good assembly
 instead of being refactored onto the common sender before another device test.
