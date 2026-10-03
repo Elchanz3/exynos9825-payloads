@@ -49,7 +49,7 @@ shown above.
 | `usb_receive_armed_probe` | Arms EP2 OUT before requesting the bounded host transfer | Hardware tested on SM-N975F. Execution stopped inside the arming path before `RX1ARM!!`. |
 | `usb_out_state_probe` | Captures the BootROM EP2 and TRB state after event repair | Hardware tested on SM-N975F. The existing EP2 TRB remains hardware-owned. |
 | `usb_out_cancel_probe` | Cancels the stale EP2 transfer through the BootROM path and reports the TRB before and after | Hardware tested on SM-N975F. `ENDTRANSFER` succeeded and the TRB was cleared. |
-| `usb_receive_rearmed_probe` | Cancels the stale transfer, rearms EP2 OUT, and receives a bounded test frame | Builds and passes host-side verification; hardware validation is pending. |
+| `usb_receive_rearmed_probe` | Cancels the stale transfer, rearms EP2 OUT, and receives a bounded test frame | Hardware tested on SM-N975F. The framed transfer returned `RX1PASS!` and all 64 bytes matched. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -153,6 +153,17 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
     --output /tmp/exynos9825_usb_receive_rearmed_probe.bin \
     --debug
 ```
+
+Hardware validation passed on 2026-10-03. The device returned `RX1ARM!!`, the
+host sent the complete `0x4a`-byte frame, and the device returned `RX1PASS!`.
+The final record reported BootROM return `1`, destination `0x02030000`, receive
+limit `0x100`, and matching bytes `00` through `3f`. The payload artifact has
+SHA-256
+`befab368e6926e421deec9202713288aa96fec089e4b65b15d2291d84446a4fd`.
+The 192-byte two-record capture has SHA-256
+`a0fadaba800998f7818ae775e0d7953a1434c1ca698819016a2f79e7e4cd36a5`.
+This confirms bounded BootROM EP2 OUT reception on the existing Houston USB
+session after event repair and stale-transfer cancellation.
 
 ### Same-session USB receive probe
 

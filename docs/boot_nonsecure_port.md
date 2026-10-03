@@ -671,6 +671,19 @@ then submit the existing `0x4a`-byte DNW test frame. The probe polls the
 BootROM event dispatcher and reports `RX1PASS!` only if the completion flag
 and all 64 payload bytes match.
 
+Hardware validation passed on 2026-10-03 with artifact SHA-256
+`befab368e6926e421deec9202713288aa96fec089e4b65b15d2291d84446a4fd`.
+The device returned `RX1ARM!!`, accepted the complete framed transfer, and
+returned `RX1PASS!`. The final record reported BootROM return `1`, destination
+`0x02030000`, limit `0x100`, mismatch offset `0xffffffffffffffff`, and the
+expected byte sequence beginning with `00 01 02 03 04 05 06 07` and
+`08 09 0a 0b 0c 0d 0e 0f`. The 192-byte two-record capture has SHA-256
+`a0fadaba800998f7818ae775e0d7953a1434c1ca698819016a2f79e7e4cd36a5`.
+
+This closes the same-session transport prerequisite for bounded diagnostic
+loads. It does not yet validate a Samsung stage destination, a full-size stage
+transfer, stage execution, DRAM initialization, or Non-secure execution.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
@@ -687,7 +700,6 @@ Non-secure transition. Stage 2 and Stage 3 are blocked on all of the following:
 - the exact lower-EL target and execution level;
 - the monitor or security-controller sequence that makes that target usable;
 - confirmed S5E9825 destinations and bounds for each required incoming stage;
-- a same-session Houston host transfer path;
 - device validation of each incremental payload.
 
 No `build/boot_nonsecure.bin` target should exist before these gates are met.
