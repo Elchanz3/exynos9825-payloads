@@ -590,6 +590,13 @@ the original callback, advances and acknowledges the triggering event, then
 sends `RX1EVT!!` through the validated EP1 IN sender. It performs no receive.
 The record preserves the event index and event word observed at payload entry.
 
+Hardware validation passed on 2026-10-03. The probe returned `RX1EVT!!` in
+Secure EL3 and advanced the software event index from `0x0b` to `0x0c`. The
+trigger callback result word was zero. The 96-byte raw record has SHA-256
+`9b16513c5310e3d70ddd32e62b4144518c9411cb1dcdb703eb067e582ef17354`.
+This isolates the remaining failure to the receive setup or polling performed
+after the event repair.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

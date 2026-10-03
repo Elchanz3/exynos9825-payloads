@@ -45,7 +45,7 @@ shown above.
 | `usb_receive_probe` | Tests a bounded BootROM receive after an EP1 ready marker | Hardware tested on SM-N975F. `RX1RDY!!` was received and the host write completed, but the BootROM receive did not return. |
 | `usb_receive_direct_probe` | Repeats the bounded receive without a preceding EP1 transfer | Hardware tested on SM-N975F. The host write completed, but no terminal record returned. |
 | `usb_receive_event_probe` | Retires Houston's triggering event before the bounded receive | Hardware tested on SM-N975F. The host write completed, but no terminal record returned. |
-| `usb_event_repair_probe` | Reports immediately after retiring Houston's triggering event | Builds and passes host-side verification; hardware validation is pending. |
+| `usb_event_repair_probe` | Reports immediately after retiring Houston's triggering event | Hardware tested on SM-N975F. Event repair and subsequent EP1 IN transfer passed. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -206,6 +206,11 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
     --output /tmp/exynos9825_usb_event_repair_probe.bin \
     --debug
 ```
+
+Hardware testing returned `RX1EVT!!` with `CurrentEL = 0xc`. The software
+event index advanced from `0x0b` to `0x0c`, confirming that the original
+handler, index update, acknowledgement helper, and following EP1 transfer all
+completed. The triggering callback result word was zero.
 
 ## Build
 
