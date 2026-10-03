@@ -655,6 +655,14 @@ payload-local EP1 TRB and does not arm a new OUT transfer. A valid result must
 show the pre-cancellation HWO state, endpoint-command return `1`, and zeroed
 buffer, size, and control fields after the clear helper returns.
 
+Hardware validation passed on 2026-10-03. The pre-cancellation fields were
+buffer `0x02021570`, size `0x200`, and control `0x813`. Endpoint command 8
+returned `1`, and the buffer, size, and control fields were all zero after
+`0x19e4`. The 96-byte raw record has SHA-256
+`923ea0b41d93d2168c85b8f2d47962522bbb989cfcc60b27d8ea4e65316bdc1d`.
+This validates the volatile recovery sequence required before another EP2
+receive can be armed.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

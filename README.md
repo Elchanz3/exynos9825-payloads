@@ -48,7 +48,7 @@ shown above.
 | `usb_event_repair_probe` | Reports immediately after retiring Houston's triggering event | Hardware tested on SM-N975F. Event repair and subsequent EP1 IN transfer passed. |
 | `usb_receive_armed_probe` | Arms EP2 OUT before requesting the bounded host transfer | Hardware tested on SM-N975F. Execution stopped inside the arming path before `RX1ARM!!`. |
 | `usb_out_state_probe` | Captures the BootROM EP2 and TRB state after event repair | Hardware tested on SM-N975F. The existing EP2 TRB remains hardware-owned. |
-| `usb_out_cancel_probe` | Cancels the stale EP2 transfer through the BootROM path and reports the TRB before and after | Builds and passes host-side verification; hardware validation is pending. |
+| `usb_out_cancel_probe` | Cancels the stale EP2 transfer through the BootROM path and reports the TRB before and after | Hardware tested on SM-N975F. `ENDTRANSFER` succeeded and the TRB was cleared. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -133,6 +133,12 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
     --output /tmp/exynos9825_nonsecure_transition_checkpoints.bin \
     --debug
 ```
+
+Hardware validation passed on 2026-10-03. The original TRB again contained
+buffer `0x02021570`, size `0x200`, and control `0x813`. `ENDTRANSFER` returned
+`1`, and all three TRB fields were zero after the BootROM clear helper. The
+96-byte raw record has SHA-256
+`923ea0b41d93d2168c85b8f2d47962522bbb989cfcc60b27d8ea4e65316bdc1d`.
 
 ### Same-session USB receive probe
 
