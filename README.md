@@ -43,7 +43,7 @@ shown above.
 | `boot_nonsecure_probe` | Reports EL3 and EL2 architectural state without leaving Secure EL3 | Hardware tested on SM-N975F through Houston. |
 | `nonsecure_transition_probe` | Diagnoses access to the Binary 9 sboot address before a minimal EL3 to Non-secure EL2h transition | Hardware tested on SM-N975F. Execution stops at the first access to `0xbfe80000`, before `ERET`. |
 | `usb_receive_probe` | Tests a bounded BootROM receive after an EP1 ready marker | Hardware tested on SM-N975F. `RX1RDY!!` was received and the host write completed, but the BootROM receive did not return. |
-| `usb_receive_direct_probe` | Repeats the bounded receive without a preceding EP1 transfer | Builds and passes host-side verification; hardware validation is pending. |
+| `usb_receive_direct_probe` | Repeats the bounded receive without a preceding EP1 transfer | Hardware tested on SM-N975F. The host write completed, but no terminal record returned. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -167,6 +167,12 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
     --output /tmp/exynos9825_usb_receive_direct_probe.bin \
     --debug
 ```
+
+Hardware testing produced the same missing terminal record. This excludes the
+preceding EP1 marker as the cause. BootROM analysis shows that Houston invokes
+the payload from inside the USB event dispatcher, before that dispatcher
+advances and acknowledges the event which caused execution. A nested call to
+the BootROM receive loop can therefore encounter the same pending event again.
 
 ## Build
 

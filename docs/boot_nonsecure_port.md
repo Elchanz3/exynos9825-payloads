@@ -552,6 +552,23 @@ whether a pending completion event from the ready marker interfered with the
 BootROM event loop. It retains the same iRAM destination, bound, pattern, and
 receive entry point. No Samsung boot stage is sent by this diagnostic.
 
+The marker-free artifact, SHA-256
+`ec0e3ee1ae24ae496acac6b162b12143480c91fb4a94349e571faeb5a2cea803`,
+was tested on 2026-10-03. The host completed the same `0x4a`-byte EP2 OUT
+write, but received zero result bytes. Removing the preceding EP1 transfer did
+not make `0x11cc` return.
+
+Static analysis explains a more fundamental reentrancy problem. Houston
+replaces the BootROM device-event callback at USB state offset `+0x10`. The
+BootROM dispatcher at `0x2af0` calls that callback before it advances the
+software event index and acknowledges four bytes through its helper at
+`0x2fbc`. The Houston payload therefore starts while its triggering event is
+still pending. Calling `0x11cc` from that context enters `0x2af0` recursively,
+where the same event and overwritten callback can be encountered again. The
+next diagnostic must restore the observed original callback `0x1b2c`, process
+the current event through that handler, advance the software event index, and
+use the BootROM acknowledgement helper before entering the receive loop.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
