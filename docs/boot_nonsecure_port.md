@@ -684,6 +684,15 @@ This closes the same-session transport prerequisite for bounded diagnostic
 loads. It does not yet validate a Samsung stage destination, a full-size stage
 transfer, stage execution, DRAM initialization, or Non-secure execution.
 
+`epbl_receive_probe` is the next diagnostic step. It uses the validated event
+repair, cancellation, arming, and polling sequence to receive the exact
+`0x3000`-byte Binary 9 EPBL at `0x02030000`. The host pins the input to SHA-256
+`d25e155bb032eebe43a832de9781bc6c88ee8f599b4888159ddedd6fde42511d`.
+The payload checks all received bytes with FNV-1a and verifies selected words
+at both ends of the file before returning `EPBPASS!`. The address remains a
+diagnostic receive area; the probe does not branch to it or promote it to a
+stock stage execution address.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

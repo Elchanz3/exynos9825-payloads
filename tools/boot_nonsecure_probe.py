@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
 import argparse
+import hashlib
 import struct
 import sys
 import time
@@ -23,6 +24,9 @@ RX_EVENT_MAGIC = b"RX1EVT!!"
 RX_ARMED_MAGIC = b"RX1ARM!!"
 RX_OUT_MAGIC = b"RX1OUT!!"
 RX_CANCEL_MAGIC = b"RX1CANC!"
+EPBL_READY_MAGIC = b"EPBRDY!!"
+EPBL_PASS_MAGIC = b"EPBPASS!"
+EPBL_FAIL_MAGIC = b"EPBFAIL!"
 RX_PATTERN = bytes(range(0x40))
 RECORD_SIZE = 0x60
 EL3_FIELDS = (
@@ -103,6 +107,19 @@ RX_CANCEL_FIELDS = (
     "TRB control after",
 )
 
+EPBL_FIELDS = (
+    "status",
+    "BootROM return",
+    "destination",
+    "receive limit",
+    "computed FNV-1a",
+    "expected FNV-1a",
+    "first qword",
+    "second qword",
+    "last qword",
+    "CurrentEL",
+)
+
 
 def decode_record(data: bytes):
     if len(data) != RECORD_SIZE:
@@ -128,6 +145,8 @@ def decode_record(data: bytes):
         fields = RX_OUT_FIELDS
     elif magic == RX_CANCEL_MAGIC:
         fields = RX_CANCEL_FIELDS
+    elif magic in (EPBL_READY_MAGIC, EPBL_PASS_MAGIC, EPBL_FAIL_MAGIC):
+        fields = EPBL_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
 
@@ -142,11 +161,15 @@ def decode_record(data: bytes):
     if magic == EL3_MAGIC:
         return True
 
-    if magic in (RX_READY_MAGIC, RX_ARMED_MAGIC):
+    if magic in (RX_READY_MAGIC, RX_ARMED_MAGIC, EPBL_READY_MAGIC):
         checkpoint = (
-            "EP2 OUT armed; waiting for framed transfer"
-            if magic == RX_ARMED_MAGIC
-            else "waiting for framed EP2 OUT transfer"
+            "EP2 OUT armed; waiting for Binary 9 EPBL"
+            if magic == EPBL_READY_MAGIC
+            else (
+                "EP2 OUT armed; waiting for framed transfer"
+                if magic == RX_ARMED_MAGIC
+                else "waiting for framed EP2 OUT transfer"
+            )
         )
         print(f"checkpoint            = {checkpoint}")
         return None
@@ -171,6 +194,23 @@ def decode_record(data: bytes):
             and values[9] == 0
         )
         print(f"OUT cancellation     = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic in (EPBL_PASS_MAGIC, EPBL_FAIL_MAGIC):
+        passed = (
+            magic == EPBL_PASS_MAGIC
+            and values[0] == 1
+            and values[1] == 1
+            and values[2] == 0x02030000
+            and values[3] == 0x3000
+            and values[4] == values[5]
+            and values[5] == 0xFDFB55E38228E523
+            and values[6] == 0xB82C55E700000018
+            and values[7] == 0
+            and values[8] == 0x17B84398A0C70F76
+            and values[9] == 0xC
+        )
+        print(f"EPBL receive result  = {'PASS' if passed else 'FAIL'}")
         return passed
 
     if magic in (RX_PASS_MAGIC, RX_FAIL_MAGIC):
@@ -259,6 +299,8 @@ def read_probe_records(device, usb_core) -> bytes:
             RX_EVENT_MAGIC,
             RX_OUT_MAGIC,
             RX_CANCEL_MAGIC,
+            EPBL_PASS_MAGIC,
+            EPBL_FAIL_MAGIC,
         ):
             break
 
@@ -274,24 +316,53 @@ def make_dnw_frame(payload: bytes) -> bytes:
     return bytes(frame)
 
 
-def run_receive_probe(device, usb_core) -> bytes:
+def load_binary9_epbl(path: Path) -> bytes:
+    transfer = path.read_bytes()
+    if len(transfer) != 0x3000:
+        raise RuntimeError(
+            f"EPBL file is 0x{len(transfer):x} bytes, expected 0x3000"
+        )
+
+    digest = hashlib.sha256(transfer).hexdigest()
+    expected = "d25e155bb032eebe43a832de9781bc6c88ee8f599b4888159ddedd6fde42511d"
+    if digest != expected:
+        raise RuntimeError(
+            f"EPBL SHA-256 is {digest}, expected Binary 9 {expected}"
+        )
+    return transfer
+
+
+def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
     ready = read_probe_record(device, usb_core)
     if len(ready) != RECORD_SIZE:
         raise RuntimeError(
             f"received 0x{len(ready):x} ready bytes, expected 0x{RECORD_SIZE:x}"
         )
-    if ready[:8] == RX_FAIL_MAGIC:
+    if ready[:8] in (RX_FAIL_MAGIC, EPBL_FAIL_MAGIC):
         print(f"Received record 1: {ready[:8]!r}")
         return ready
-    if ready[:8] not in (RX_READY_MAGIC, RX_ARMED_MAGIC):
+    if ready[:8] not in (RX_READY_MAGIC, RX_ARMED_MAGIC, EPBL_READY_MAGIC):
         raise RuntimeError(f"unexpected receive-probe marker {ready[:8]!r}")
 
     print(f"Received record 1: {ready[:8]!r}")
-    frame = make_dnw_frame(RX_PATTERN)
-    written = device.write(0x02, frame, timeout=5000)
+    if ready[:8] == EPBL_READY_MAGIC:
+        if receive_payload is None:
+            raise RuntimeError("EPBL probe requires --receive-file")
+        transfer = receive_payload
+        label = f"Binary 9 EPBL (SHA-256 {hashlib.sha256(transfer).hexdigest()})"
+        timeout = 10000
+    else:
+        if receive_payload is not None:
+            raise RuntimeError("--receive-file requires the EPBL receive probe")
+        transfer = RX_PATTERN
+        label = "test pattern"
+        timeout = 5000
+
+    frame = make_dnw_frame(transfer)
+    written = device.write(0x02, frame, timeout=timeout)
     if written != len(frame):
         raise RuntimeError(f"short EP2 OUT write: 0x{written:x}/0x{len(frame):x}")
-    print(f"Sent framed test pattern: 0x{written:x} bytes")
+    print(f"Sent framed {label}: 0x{written:x} bytes")
 
     result = read_probe_record(device, usb_core)
     if len(result) != RECORD_SIZE:
@@ -301,7 +372,12 @@ def run_receive_probe(device, usb_core) -> bytes:
             file=sys.stderr,
         )
         return ready
-    if result[:8] not in (RX_PASS_MAGIC, RX_FAIL_MAGIC):
+    if result[:8] not in (
+        RX_PASS_MAGIC,
+        RX_FAIL_MAGIC,
+        EPBL_PASS_MAGIC,
+        EPBL_FAIL_MAGIC,
+    ):
         raise RuntimeError(f"unexpected receive result {result[:8]!r}")
     print(f"Received record 2: {result[:8]!r}")
     return ready + result
@@ -352,6 +428,10 @@ def run_live(args) -> bytes:
     if not payload.is_file():
         raise RuntimeError(f"payload not found: {payload}")
 
+    receive_payload = None
+    if args.receive_file is not None:
+        receive_payload = load_binary9_epbl(args.receive_file.resolve())
+
     device = wait_for_device(usb.core)
     claim_device(device, usb.core, usb.util)
 
@@ -386,7 +466,7 @@ def run_live(args) -> bytes:
         if args.receive_test_direct:
             data = run_direct_receive_probe(device, usb.core)
         elif args.receive_test:
-            data = run_receive_probe(device, usb.core)
+            data = run_receive_probe(device, usb.core, receive_payload)
         else:
             data = read_probe_records(device, usb.core)
         if not data:
@@ -421,6 +501,12 @@ def parse_args():
         help="send the framed test pattern requested by usb_receive_probe",
     )
     parser.add_argument(
+        "--receive-file",
+        type=Path,
+        metavar="FILE",
+        help="send the exact Binary 9 EPBL requested by epbl_receive_probe",
+    )
+    parser.add_argument(
         "--receive-test-direct",
         action="store_true",
         help="send the framed test pattern without waiting for an EP1 marker",
@@ -451,6 +537,8 @@ def parse_args():
     args = parser.parse_args()
     if args.receive_test and args.receive_test_direct:
         parser.error("--receive-test and --receive-test-direct are mutually exclusive")
+    if args.receive_file and not args.receive_test:
+        parser.error("--receive-file requires --receive-test")
     return args
 
 

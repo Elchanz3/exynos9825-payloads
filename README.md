@@ -10,11 +10,11 @@ The SoC separation also follows the approach used by the
 
 ## Safety and scope
 
-The current payloads only transmit data through an already configured USB
-endpoint. They do not write eFuses, OTP, UFS, or persistent flash. PMU, GPIO,
-CryptoCell, secure-boot state changes, and later boot-stage loading are not
-implemented because their S5E9825 addresses and behavior have not been
-validated.
+The current payloads operate only on volatile iRAM and the already configured
+USB controller state. They do not write eFuses, OTP, UFS, or persistent flash.
+PMU, GPIO, CryptoCell, secure-boot state changes, stage execution, and later
+boot-stage loading are not implemented because their S5E9825 addresses and
+behavior have not been validated.
 
 ## Confirmed target data
 
@@ -50,6 +50,7 @@ shown above.
 | `usb_out_state_probe` | Captures the BootROM EP2 and TRB state after event repair | Hardware tested on SM-N975F. The existing EP2 TRB remains hardware-owned. |
 | `usb_out_cancel_probe` | Cancels the stale EP2 transfer through the BootROM path and reports the TRB before and after | Hardware tested on SM-N975F. `ENDTRANSFER` succeeded and the TRB was cleared. |
 | `usb_receive_rearmed_probe` | Cancels the stale transfer, rearms EP2 OUT, and receives a bounded test frame | Hardware tested on SM-N975F. The framed transfer returned `RX1PASS!` and all 64 bytes matched. |
+| `epbl_receive_probe` | Receives and verifies the current Binary 9 EPBL in a bounded iRAM diagnostic area without executing it | Builds and passes host-side verification; hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -164,6 +165,29 @@ The 192-byte two-record capture has SHA-256
 `a0fadaba800998f7818ae775e0d7953a1434c1ca698819016a2f79e7e4cd36a5`.
 This confirms bounded BootROM EP2 OUT reception on the existing Houston USB
 session after event repair and stale-transfer cancellation.
+
+### Binary 9 EPBL receive probe
+
+`epbl_receive_probe` extends the validated transport test to the exact
+`0x3000`-byte EPBL from `N975FXXS9HWHA`. It receives the file at the diagnostic
+address `0x02030000`, verifies all bytes with FNV-1a, checks the first two and
+last 64-bit words, and reports `EPBPASS!` or `EPBFAIL!`. It does not execute
+the EPBL or change any persistent state. The host rejects another bootloader
+revision by checking the EPBL size and SHA-256 before sending it.
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_receive_probe.bin \
+    --receive-test \
+    --receive-file /path/to/N975FXXS9HWHA/epbl.bin \
+    --output /tmp/exynos9825_epbl_receive_probe.bin \
+    --debug
+```
+
+The expected result is `EPBRDY!!`, a `0x300a`-byte host write, then
+`EPBPASS!`. Hardware validation is required before this destination and
+full-size receive are used for a stage execution experiment.
 
 ### Same-session USB receive probe
 
