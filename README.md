@@ -71,14 +71,16 @@ not execute `ERET`, change `SCR_EL3`, or access a security controller.
 With the Houston checkout next to this repository, run:
 
 ```sh
-sudo python3 tools/boot_nonsecure_probe.py --debug
+sudo "$(command -v python3)" tools/boot_nonsecure_probe.py --debug
 ```
 
 The tool uses Houston's payload upload and callback-overwrite functions on the
 existing USB session. It saves a versioned `0x60`-byte record to
 `/tmp/exynos9825_boot_nonsecure_probe.bin` and prints `CurrentEL`, `SCR_EL3`,
 the EL3 translation state, the relevant EL2 state, `ID_AA64PFR0_EL1`, and
-`VBAR_EL3`.
+`VBAR_EL3`. Using the resolved interpreter path is required when the Houston
+dependencies are installed in an active virtual environment: plain
+`sudo python3` normally selects root's system Python instead.
 
 Decode an already captured record without accessing USB:
 

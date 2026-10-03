@@ -98,11 +98,18 @@ def run_live(args) -> bytes:
 
     sys.path.insert(0, str(houston_dir))
 
-    import usb.core
-    import usb.util
+    try:
+        import usb.core
+        import usb.util
 
-    from modules.exploit import overwrite_iram, send_payload
-    from modules.soc_data import SOC_DATA
+        from modules.exploit import overwrite_iram, send_payload
+        from modules.soc_data import SOC_DATA
+    except ModuleNotFoundError as error:
+        houston_python = houston_dir / ".venv" / "bin" / "python3"
+        hint = "activate the environment containing Houston's requirements"
+        if houston_python.is_file():
+            hint = f"rerun with sudo {houston_python}"
+        raise RuntimeError(f"missing Python module {error.name!r}; {hint}") from error
 
     payload = args.payload.resolve()
     if not payload.is_file():
