@@ -8,9 +8,11 @@ import time
 from pathlib import Path
 
 
-MAGIC = b"NSP1EL3!"
+EL3_MAGIC = b"NSP1EL3!"
+NS_PASS_MAGIC = b"NS2PASS!"
+NS_FAIL_MAGIC = b"NS2FAIL!"
 RECORD_SIZE = 0x60
-FIELDS = (
+EL3_FIELDS = (
     "CurrentEL",
     "SCR_EL3",
     "SCTLR_EL3",
@@ -23,26 +25,55 @@ FIELDS = (
     "VBAR_EL3",
 )
 
+NS_FIELDS = (
+    "status",
+    "ESR_EL3",
+    "FAR_EL3",
+    "ELR_EL3",
+    "SPSR_EL3",
+    "original SCR_EL3",
+    "original VBAR_EL3",
+    "CurrentEL",
+    "lower x0",
+    "lower x1",
+)
 
-def decode_record(data: bytes) -> None:
+
+def decode_record(data: bytes) -> bool:
     if len(data) != RECORD_SIZE:
         raise ValueError(
             f"record is 0x{len(data):x} bytes, expected 0x{RECORD_SIZE:x}"
         )
 
     magic, version, size = struct.unpack_from("<8sII", data)
-    if magic != MAGIC:
-        raise ValueError(f"unexpected magic {magic!r}")
     if version != 1:
         raise ValueError(f"unsupported record version {version}")
     if size != RECORD_SIZE:
         raise ValueError(f"record declares size 0x{size:x}")
 
+    if magic == EL3_MAGIC:
+        fields = EL3_FIELDS
+    elif magic in (NS_PASS_MAGIC, NS_FAIL_MAGIC):
+        fields = NS_FIELDS
+    else:
+        raise ValueError(f"unexpected magic {magic!r}")
+
     print(f"magic                = {magic!r}")
     print(f"version              = {version}")
-    for index, name in enumerate(FIELDS):
+    values = []
+    for index, name in enumerate(fields):
         value = struct.unpack_from("<Q", data, 0x10 + index * 8)[0]
+        values.append(value)
         print(f"{name:20} = 0x{value:016x}")
+
+    if magic == EL3_MAGIC:
+        return True
+
+    ec = (values[1] >> 26) & 0x3F
+    print(f"ESR exception class  = 0x{ec:02x}")
+    passed = magic == NS_PASS_MAGIC and values[0] == 4 and ec == 0x17
+    print(f"transition result    = {'PASS' if passed else 'FAIL'}")
+    return passed
 
 
 def wait_for_device(usb_core):
@@ -167,7 +198,7 @@ def run_live(args) -> bytes:
 def parse_args():
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(
-        description="Run or decode the Exynos9825 EL3 state probe"
+        description="Run or decode the Exynos9825 boot probes"
     )
     parser.add_argument(
         "--decode",
@@ -205,11 +236,11 @@ def main() -> int:
     args = parse_args()
     try:
         data = args.decode.read_bytes() if args.decode else run_live(args)
-        decode_record(data)
+        passed = decode_record(data)
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
-    return 0
+    return int(not passed)
 
 
 if __name__ == "__main__":

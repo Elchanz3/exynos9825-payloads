@@ -5,7 +5,8 @@ OBJCOPY := $(CROSS_COMPILE)objcopy
 OBJDUMP := $(CROSS_COMPILE)objdump
 
 BUILD_DIR := build
-PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe
+PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
+	nonsecure_transition_probe
 
 CPPFLAGS := -Iinclude
 ASFLAGS  := -ffreestanding -fno-pic -fno-pie -march=armv8-a
@@ -20,7 +21,8 @@ DISASMS    := $(PAYLOADS:%=$(BUILD_DIR)/%.disasm)
 
 .SECONDARY: $(ELFS) $(BUILD_DIR)/payloads/houston_marker.o \
 	$(BUILD_DIR)/payloads/dump_bootrom.o \
-	$(BUILD_DIR)/payloads/boot_nonsecure_probe.o $(COMMON_OBJ)
+	$(BUILD_DIR)/payloads/boot_nonsecure_probe.o \
+	$(BUILD_DIR)/payloads/nonsecure_transition_probe.o $(COMMON_OBJ)
 
 .PHONY: all clean disasm verify
 
@@ -53,6 +55,11 @@ $(BUILD_DIR)/dump_bootrom.elf: $(BUILD_DIR)/payloads/dump_bootrom.o \
 
 $(BUILD_DIR)/boot_nonsecure_probe.elf: \
 	$(BUILD_DIR)/payloads/boot_nonsecure_probe.o \
+	$(COMMON_OBJ) arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/nonsecure_transition_probe.elf: \
+	$(BUILD_DIR)/payloads/nonsecure_transition_probe.o \
 	$(COMMON_OBJ) arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 

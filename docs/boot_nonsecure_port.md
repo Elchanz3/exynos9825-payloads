@@ -438,8 +438,8 @@ I-cache enabled. Since `TCR_EL3` was zero, the nonzero `TTBR0_EL3` and
 
 ### Stage 2: minimal non-secure transition probe
 
-This stage must wait until a candidate region has enough evidence to justify a
-device test. Keep two pieces of code:
+`payloads/nonsecure_transition_probe.S` implements this device-test stage with
+two pieces of code:
 
 1. a secure EL3 resident that installs a private EL3 vector table, records
    exceptions, performs cache maintenance and barriers, and controls the
@@ -447,11 +447,13 @@ device test. Keep two pieces of code:
 2. a tiny lower-EL stub copied to the candidate region that executes a few
    instructions and immediately issues a controlled SMC.
 
-The EL3 vector path must report `ESR_EL3`, `FAR_EL3`, `ELR_EL3`, and
-`SPSR_EL3` through EP1 IN. A successful SMC return must use a separate marker
-from an abort report. The first proposed candidate is `0xbfe80000`, but it must
-remain a build-time experiment value rather than a public S5E9825 constant
-until hardware confirms non-secure execution.
+The probe first attempts to write and read back the 16-byte lower-EL stub at
+`0xbfe80000`. Its EL3 vector path reports `ESR_EL3`, `FAR_EL3`, `ELR_EL3`,
+`SPSR_EL3`, the original SCR/vector state, and lower-EL sentinels through EP1
+IN. Magic `NS2PASS!` is reserved for an SMC64 exception class from the stub;
+all other exceptions and copy mismatches use `NS2FAIL!`. The candidate remains
+local to this experiment rather than becoming a public S5E9825 platform
+constant until hardware confirms Non-secure execution.
 
 No full Samsung stage receive should be combined with this test. A PASS means
 the lower-EL stub fetched and reached EL3 through SMC. Any instruction abort,

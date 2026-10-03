@@ -41,6 +41,7 @@ shown above.
 | `dump_bootrom` | Sends BootROM as two sequential `0x10000` EP1 IN transfers | Hardware tested on SM-N975F. The new build is byte-identical to the validated binary. |
 | `houston_marker` | Sends `HOUSTON!` over EP1 IN after callback hijack | Hardware tested on SM-N975F through Houston. `HOUSTON!` was received on the existing EP1 IN session. |
 | `boot_nonsecure_probe` | Reports EL3 and EL2 architectural state without leaving Secure EL3 | Hardware tested on SM-N975F through Houston. |
+| `nonsecure_transition_probe` | Attempts a minimal EL3 to Non-secure EL2h transition at the Binary 9 sboot address | Builds and passes host-side verification; hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -94,6 +95,28 @@ Decode an already captured record without accessing USB:
 ```sh
 python3 tools/boot_nonsecure_probe.py \
     --decode /tmp/exynos9825_boot_nonsecure_probe.bin
+```
+
+### Non-secure transition probe
+
+`nonsecure_transition_probe` copies a 16-byte `SMC` stub to the Binary 9 sboot
+address `0xbfe80000`, verifies the copy from Secure EL3, installs a private EL3
+vector table, and attempts an exception return to Non-secure EL2h. It uses
+`SCR_EL3 = 0x40f` and `SPSR_EL3 = 0x3c9`, then restores the hardware-confirmed
+original `SCR_EL3` and `VBAR_EL3` before reporting over USB.
+
+The report distinguishes a successful lower-EL `SMC`, an EL3 data abort while
+accessing the candidate DRAM address, a Non-secure instruction abort, and a
+copy mismatch. The test is volatile and does not load Samsung stages or write
+persistent storage.
+
+Run it with:
+
+```sh
+sudo "$(command -v python3)" tools/boot_nonsecure_probe.py \
+    --payload build/nonsecure_transition_probe.bin \
+    --output /tmp/exynos9825_nonsecure_transition_probe.bin \
+    --debug
 ```
 
 ## Build
