@@ -19,7 +19,7 @@ The following labels are used below:
 
 - **hardware-confirmed**: observed on the target SM-N975F;
 - **source-confirmed**: read directly from a referenced source revision;
-- **artifact-derived**: recovered from the HWA6 Samsung binaries;
+- **artifact-derived**: recovered from the current Binary 9 Samsung binaries;
 - **candidate**: supported by static analysis, but still requires a target
   device test;
 - **unknown**: insufficient evidence to implement safely.
@@ -41,18 +41,20 @@ function or target named `boot_nonsecure`.
 
 ### Exynos9825 artifacts
 
-The analysis used the hardware-validated BootROM dump and the HWA6 stage files
-extracted from the Odin BL `sboot.bin` supplied for this research:
+The analysis used the hardware-validated BootROM dump and the current Binary 9
+stage files extracted from the Odin BL `sboot.bin` supplied for this research.
+The image identifies itself as `N975FXXS9HWHA`. Files under `old-bin/` belong
+to an older bootloader revision and are deliberately excluded.
 
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
 | BootROM | `0x20000` | `895eaa3b833a6fc1168461be3d7df38416107872d530fdece90c7f689d671225` |
-| HWA6 `sboot.bin` | `0x400000` | `f5462122c93af299a7a8084cedc22679f98b8aca0272c4842597bfed231512a8` |
-| `epbl.bin` | `0x3000` | `6dbb6000d434539cfe0dd62e353dcb04c68fe41a6c080b1b5e7fee277b8990ed` |
-| `fwbl1.bin` | `0x13000` | `a51ec5806e460af6ce324f44a4ef4f18b1eae79900b9775a9b263876e623c5a2` |
-| `bl2.bin` | `0x52000` | `f2b33a20e420befec71c0dbdd71d497730a0b1b012b44f18296768833107038d` |
-| `sboot_stage.bin` | `0x180000` | `950c20bbabff8b302015415e431baf6c5a470ab7765951849a2b029b62ec1e4c` |
-| `el3_mon.bin` | `0x40000` | `f7c4ce8f329791df55f17d30c74c1fd5492fee8ee478c8b048f2dc754d2ceb37` |
+| Binary 9 `sboot.bin` | `0x400000` | `d2d3a9a580f17069dc627587c95daed8ed7611fab96492f7ccb1815085a88bc0` |
+| `epbl.bin` | `0x3000` | `d25e155bb032eebe43a832de9781bc6c88ee8f599b4888159ddedd6fde42511d` |
+| `fwbl1.bin` | `0x13000` | `34da240b4f91319d3151c32577c57f308ff2b76d4ad6ae2a6b19de88f15f12ee` |
+| `bl2.bin` | `0x52000` | `f7bb1492737382bb23c8c9511f461fe0b5a5a87d923c5a20573731a4d522aa8c` |
+| `sboot_stage.bin` | `0x180000` | `501ae58a701478345e751db2937f6a8e667ee64f721b2a72063b538213044b87` |
+| `el3_mon.bin` | `0x40000` | `b79e2d6c23ec9c5a5aaba7f44c26ffcbad573a002ad01095c20bd14f3817c6c2` |
 
 The five stage files match byte-for-byte slices of `sboot.bin`:
 
@@ -286,10 +288,11 @@ later Samsung code perform subsequent receives. In the Exynos9810 reference,
 the corresponding first image is called BL31 and the README says
 `BL31-EL3_MON`.
 
-The HWA6 Exynos9825 research sender uses five ordered slices—EPBL, FWBL1, BL2,
-sboot, and EL3 monitor—and a destination selector of `0xfffffffe` in place of
-Houston's `\x1bDNW` word. That proves the content boundaries for the stock EUB
-flow. It does not yet prove that the same five frames can be sent unchanged
+The Binary 9 Exynos9825 research sender uses five ordered slices—EPBL, FWBL1,
+BL2, sboot, and EL3 monitor—and a destination selector of `0xfffffffe` in
+place of Houston's `\x1bDNW` word. Each slice matches the corresponding range
+of the current `sboot.bin`. That proves the content boundaries for the stock
+EUB flow. It does not yet prove that the same five frames can be sent unchanged
 after a Houston callback hijack.
 
 ## Secure-to-non-secure handoff analysis
@@ -330,7 +333,7 @@ calls and are not safe S5E9825 payload constants without dynamic validation.
 
 ### sboot
 
-The HWA6 sboot stage is position-dependent code linked at `0xbfe80000`. Its
+The Binary 9 sboot stage is position-dependent code linked at `0xbfe80000`. Its
 entry reads `CurrentEL` and installs a vector base appropriate for EL1, EL2, or
 EL3. If entered at EL3, it also ORs `0xf` into `SCR_EL3`. The stage contains
 only this one SCR write.
@@ -357,7 +360,7 @@ call structure, not a decoded monitor implementation.
 
 ### EL3 monitor
 
-The HWA6 `el3_mon.bin` is linked at `0xbff80000`, has code entry at `+0x20`,
+The Binary 9 `el3_mon.bin` is linked at `0xbff80000`, has code entry at `+0x20`,
 and contains encrypted or otherwise non-code regions after its early setup.
 The static image has no direct SCR, SPSR_EL3, ELR_EL3, or `ERET` encoding.
 Consequently, static disassembly of the stored image is insufficient to name
@@ -368,7 +371,7 @@ the monitor's runtime handoff routine or the exact `ELR_EL3` it installs.
 `0xbfe80000` is the strongest current candidate for the first Samsung
 non-secure stage address because:
 
-- the HWA6 sboot image is linked for `0xbfe80000`, as shown by its
+- the Binary 9 sboot image is linked for `0xbfe80000`, as shown by its
   position-dependent references;
 - its entry is explicitly written to tolerate EL1, EL2, or EL3;
 - the Exynos990 receive-hook research branch recognizes `0xbfe80000` as the
@@ -391,7 +394,7 @@ external instruction abort on the first non-secure fetch.
 Neither OpenMiniBL1 source configures TZPC, TZASC, or another memory security
 controller. It relies on the Samsung stages to establish those attributes.
 
-The HWA6 artifacts contain evidence that such configuration exists later:
+The Binary 9 artifacts contain evidence that such configuration exists later:
 
 - BL2 strings include `DtzpcRS+`, `DtzpcRS-`, `DtzpcSV+`, `DtzpcSV-`, and
   `DtzpcER`;
@@ -466,7 +469,7 @@ components should be:
 The current Houston post-exploit loop cannot drive this stage unchanged
 because it waits for re-enumeration. Host support must retain the existing USB
 handle, wait for an explicit payload request or agreed receive point, and then
-send the selected HWA6 stage frames in order.
+send the selected Binary 9 stage frames in order.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
