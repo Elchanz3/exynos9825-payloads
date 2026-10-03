@@ -578,6 +578,13 @@ The probe records the software event index and triggering event word, then
 performs the same bounded iRAM receive. These BootROM-derived operations remain
 local to the diagnostic until hardware validation.
 
+The first hardware run of `usb_receive_event_probe`, artifact SHA-256
+`febc85fd0ca072f11a645851aa818611f3ebe379cc567bc7ccaa8fbff3ea664b`,
+completed the `0x4a`-byte host write but returned zero result bytes. This does
+not disprove the dispatcher analysis because the payload had no checkpoint
+between repairing the event and entering `0x11cc`. A smaller probe must perform
+the repair and report immediately, without starting an OUT transfer.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
