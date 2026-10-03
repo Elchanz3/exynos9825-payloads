@@ -786,6 +786,13 @@ cache, fetching from `0x02025000`, or the initial worker setup before its USB
 send. A smaller relocation-only diagnostic is required before this probe can
 be retried.
 
+`relocation_probe` isolates that boundary and does not receive a boot stage or
+call a BootROM helper. It copies a self-contained worker to `0x02025000`,
+compares every copied qword, and emits `RELCPY!!` while still executing in the
+Houston area. It then invalidates the EL3 instruction cache and branches to
+the copy, which emits `RELPASS!` with a private TRB. Hardware validation is
+pending.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

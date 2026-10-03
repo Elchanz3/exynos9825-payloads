@@ -53,6 +53,7 @@ shown above.
 | `epbl_receive_probe` | Receives and verifies the current Binary 9 EPBL in a bounded iRAM diagnostic area without executing it | Hardware tested on SM-N975F. The complete `0x3000`-byte EPBL returned `EPBPASS!`. |
 | `epbl_state_probe` | Captures the complete iRAM state window consumed by the Binary 9 EPBL without calling its pointers | Hardware tested on SM-N975F. All four state records were received. |
 | `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Hardware tested on SM-N975F. No `EPHRDY!!` record returned, so execution stopped before the receive checkpoint. |
+| `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Built and statically verified. Hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -257,6 +258,20 @@ not send EPBL, so neither the BootROM parser nor Samsung code ran. The new
 operations before the missing checkpoint are the worker copy, EL3 instruction
 cache invalidation, and first instruction fetch at `0x02025000`. These steps
 must be isolated before the header probe is attempted again.
+
+`relocation_probe` performs that isolation without receiving a Samsung stage.
+It compares the complete copied worker and emits `RELCPY!!` from the original
+Houston area. It then invalidates the EL3 instruction cache, branches to
+`0x02025000`, and emits `RELPASS!` from the relocated worker. Receiving both
+records proves the copy and relocated Secure EL3 instruction fetch separately.
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/relocation_probe.bin \
+    --output /tmp/exynos9825_relocation_probe.bin \
+    --debug
+```
 
 ### Same-session USB receive probe
 

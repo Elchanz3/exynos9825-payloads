@@ -30,6 +30,9 @@ EPBL_FAIL_MAGIC = b"EPBFAIL!"
 EPBL_HEADER_READY_MAGIC = b"EPHRDY!!"
 EPBL_HEADER_PASS_MAGIC = b"EPHPASS!"
 EPBL_HEADER_FAIL_MAGIC = b"EPHFAIL!"
+RELOCATION_COPY_MAGIC = b"RELCPY!!"
+RELOCATION_PASS_MAGIC = b"RELPASS!"
+RELOCATION_FAIL_MAGIC = b"RELFAIL!"
 EPBL_STATE_MAGICS = {
     b"EPS0IRAM": 0x02020000,
     b"EPS1IRAM": 0x02020050,
@@ -142,6 +145,19 @@ EPBL_HEADER_FIELDS = (
     "CurrentEL",
 )
 
+RELOCATION_FIELDS = (
+    "status",
+    "source address",
+    "target address",
+    "copy size",
+    "mismatch offset",
+    "source qword",
+    "target qword",
+    "CurrentEL",
+    "reserved 0",
+    "reserved 1",
+)
+
 
 def decode_record(data: bytes):
     if len(data) != RECORD_SIZE:
@@ -184,6 +200,12 @@ def decode_record(data: bytes):
         EPBL_HEADER_FAIL_MAGIC,
     ):
         fields = EPBL_HEADER_FIELDS
+    elif magic in (
+        RELOCATION_COPY_MAGIC,
+        RELOCATION_PASS_MAGIC,
+        RELOCATION_FAIL_MAGIC,
+    ):
+        fields = RELOCATION_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
 
@@ -197,6 +219,29 @@ def decode_record(data: bytes):
 
     if magic == EL3_MAGIC:
         return True
+
+    if magic == RELOCATION_COPY_MAGIC:
+        passed = (
+            values[0] == 1
+            and values[2] == 0x02025000
+            and values[3] > 0
+            and values[4] == 0xFFFFFFFFFFFFFFFF
+            and values[7] == 0xC
+        )
+        print(f"relocation copy      = {'PASS' if passed else 'FAIL'}")
+        return None if passed else False
+
+    if magic in (RELOCATION_PASS_MAGIC, RELOCATION_FAIL_MAGIC):
+        passed = (
+            magic == RELOCATION_PASS_MAGIC
+            and values[0] == 2
+            and values[2] == 0x02025000
+            and values[3] > 0
+            and values[4] == 0xFFFFFFFFFFFFFFFF
+            and values[7] == 0xC
+        )
+        print(f"relocated execution = {'PASS' if passed else 'FAIL'}")
+        return passed
 
     if magic in (
         RX_READY_MAGIC,
@@ -366,6 +411,8 @@ def read_probe_records(device, usb_core) -> bytes:
             EPBL_FAIL_MAGIC,
             EPBL_HEADER_PASS_MAGIC,
             EPBL_HEADER_FAIL_MAGIC,
+            RELOCATION_PASS_MAGIC,
+            RELOCATION_FAIL_MAGIC,
             b"EPS3IRAM",
         ):
             break
