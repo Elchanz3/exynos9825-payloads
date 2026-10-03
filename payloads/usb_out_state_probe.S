@@ -52,7 +52,8 @@ payload_main:
     ldr     w21, [x22, #0xa4]
     str     x21, [x20, #0x40]
 
-    add     x23, x23, #0x170
+    /* BootROM 0x1920 selects workspace + 0xa0 for logical EP2. */
+    add     x23, x23, #0xa0
     ldr     w21, [x23]
     str     x21, [x20, #0x48]
     ldr     w21, [x23, #8]

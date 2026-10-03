@@ -601,10 +601,11 @@ after the event repair.
 repair, it sets the bounded destination and limit, calls the BootROM receive
 arming helper at `0x1174`, and only then reports `RX1ARM!!`. The host waits for
 this marker before submitting the same `0x4a`-byte frame. The marker uses a
-payload-local EP1 TRB and therefore does not overwrite the BootROM OUT TRB at
-`0x02024800`. The payload polls events using the BootROM dispatcher at
-`0x2af0` and reports the parser result. This tests endpoint arming and removes
-host-versus-device timing as a variable.
+payload-local EP1 TRB and therefore does not overwrite the BootROM EP2 TRB at
+`0x020214a0` or the confirmed EP1 IN sender TRB at `0x02024800`. The payload
+polls events using the BootROM dispatcher at `0x2af0` and reports the parser
+result. This tests endpoint arming and removes host-versus-device timing as a
+variable.
 
 The first hardware run returned zero ready bytes, so the host never submitted
 the test frame. The event-repair prefix is independently hardware-confirmed;
@@ -618,6 +619,20 @@ before any receive setup. It reports the transfer workspace base, EP2 maximum
 packet size, completion flag, direction selector, and the BootROM TRB buffer,
 size, and control words. Its EP1 response uses a separate payload-local TRB,
 so the reported BootROM TRB is not modified by the diagnostic itself.
+
+The first hardware run returned `RX1OUT!!` and confirmed workspace base
+`0x02021400`, EP2 maximum packet size `0x200`, a zero completion flag, and a
+zero direction selector. The initial probe revision then read
+`workspace + 0x170`. Static review of the matching BootROM shows that helper
+`0x29a4` returns this address as the receive data buffer, not as a TRB. The
+observed values `0x574e441b`, `0xd503201f`, and `0xd503201f` are consequently
+DNW and payload bytes and provide no evidence about HWO state.
+
+The endpoint-selection code at BootROM `0x1920` chooses `workspace + 0xa0`
+for logical EP2, making the EP2 TRB address `0x020214a0`. The corrected probe
+reads the buffer-low, size, and control fields from that address. This
+correction awaits hardware validation before its TRB result can be used to
+explain the `0x1174` stall.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO

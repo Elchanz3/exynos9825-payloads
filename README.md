@@ -47,7 +47,7 @@ shown above.
 | `usb_receive_event_probe` | Retires Houston's triggering event before the bounded receive | Hardware tested on SM-N975F. The host write completed, but no terminal record returned. |
 | `usb_event_repair_probe` | Reports immediately after retiring Houston's triggering event | Hardware tested on SM-N975F. Event repair and subsequent EP1 IN transfer passed. |
 | `usb_receive_armed_probe` | Arms EP2 OUT before requesting the bounded host transfer | Hardware tested on SM-N975F. Execution stopped inside the arming path before `RX1ARM!!`. |
-| `usb_out_state_probe` | Captures the BootROM EP2 and TRB state after event repair | Builds and passes host-side verification; hardware validation is pending. |
+| `usb_out_state_probe` | Captures the BootROM EP2 and TRB state after event repair | Workspace state is hardware-tested; corrected TRB snapshot awaits hardware validation. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -216,9 +216,9 @@ completed. The triggering callback result word was zero.
 
 `usb_receive_armed_probe` performs the validated event repair, configures the
 bounded receive state, calls BootROM helper `0x1174`, and sends `RX1ARM!!` only
-after EP2 OUT has been armed. Its EP1 marker uses a payload-local TRB so the
-BootROM OUT TRB at `0x02024800` remains intact. The host then submits the test
-frame:
+after EP2 OUT has been armed. Its EP1 marker uses a payload-local TRB, leaving
+both the BootROM EP2 TRB at `0x020214a0` and the confirmed EP1 IN sender TRB at
+`0x02024800` untouched. The host then submits the test frame:
 
 ```sh
 sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
@@ -243,6 +243,15 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
     --output /tmp/exynos9825_usb_out_state_probe.bin \
     --debug
 ```
+
+The first hardware run confirmed the transfer workspace at `0x02021400`, an
+EP2 maximum packet size of `0x200`, a clear receive-completion flag, and an
+EP2 direction selector of zero. That revision incorrectly treated
+`workspace + 0x170` as a TRB. BootROM helper `0x29a4` instead returns that
+address as the receive data buffer, explaining why the reported words held
+DNW and payload bytes. Disassembly of the matching S5E9825 BootROM shows that
+the EP2 path at `0x1920` selects `workspace + 0xa0`, or `0x020214a0`. The
+current artifact reads that location and still requires a hardware run.
 
 ## Build
 
