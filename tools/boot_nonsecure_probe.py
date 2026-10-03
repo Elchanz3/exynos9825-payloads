@@ -22,6 +22,7 @@ RX_FAIL_MAGIC = b"RX1FAIL!"
 RX_EVENT_MAGIC = b"RX1EVT!!"
 RX_ARMED_MAGIC = b"RX1ARM!!"
 RX_OUT_MAGIC = b"RX1OUT!!"
+RX_CANCEL_MAGIC = b"RX1CANC!"
 RX_PATTERN = bytes(range(0x40))
 RECORD_SIZE = 0x60
 EL3_FIELDS = (
@@ -89,6 +90,19 @@ RX_OUT_FIELDS = (
     "BootROM TRB control",
 )
 
+RX_CANCEL_FIELDS = (
+    "status",
+    "CurrentEL",
+    "transfer workspace base",
+    "TRB buffer before",
+    "TRB size before",
+    "TRB control before",
+    "ENDTRANSFER return",
+    "TRB buffer after",
+    "TRB size after",
+    "TRB control after",
+)
+
 
 def decode_record(data: bytes):
     if len(data) != RECORD_SIZE:
@@ -112,6 +126,8 @@ def decode_record(data: bytes):
         fields = RX_EVENT_FIELDS
     elif magic == RX_OUT_MAGIC:
         fields = RX_OUT_FIELDS
+    elif magic == RX_CANCEL_MAGIC:
+        fields = RX_CANCEL_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
 
@@ -143,6 +159,18 @@ def decode_record(data: bytes):
     if magic == RX_OUT_MAGIC:
         passed = values[0] == 1
         print(f"OUT state snapshot   = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic == RX_CANCEL_MAGIC:
+        passed = (
+            values[0] == 1
+            and (values[5] & 1) == 1
+            and values[6] == 1
+            and values[7] == 0
+            and values[8] == 0
+            and values[9] == 0
+        )
+        print(f"OUT cancellation     = {'PASS' if passed else 'FAIL'}")
         return passed
 
     if magic in (RX_PASS_MAGIC, RX_FAIL_MAGIC):
@@ -230,6 +258,7 @@ def read_probe_records(device, usb_core) -> bytes:
             RX_FAIL_MAGIC,
             RX_EVENT_MAGIC,
             RX_OUT_MAGIC,
+            RX_CANCEL_MAGIC,
         ):
             break
 

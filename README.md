@@ -48,6 +48,7 @@ shown above.
 | `usb_event_repair_probe` | Reports immediately after retiring Houston's triggering event | Hardware tested on SM-N975F. Event repair and subsequent EP1 IN transfer passed. |
 | `usb_receive_armed_probe` | Arms EP2 OUT before requesting the bounded host transfer | Hardware tested on SM-N975F. Execution stopped inside the arming path before `RX1ARM!!`. |
 | `usb_out_state_probe` | Captures the BootROM EP2 and TRB state after event repair | Hardware tested on SM-N975F. The existing EP2 TRB remains hardware-owned. |
+| `usb_out_cancel_probe` | Cancels the stale EP2 transfer through the BootROM path and reports the TRB before and after | Builds and passes host-side verification; hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -258,6 +259,20 @@ DWC3 still owns the existing EP2 TRB when the payload starts. This explains
 why the arming helper blocks in the HWO wait at `0x1920`. The corrected
 96-byte record has SHA-256
 `5817a9ecde272cd685dca56cc9b0d9c11f593d70a4ac3b358db9ed4a5ecd4841`.
+
+`usb_out_cancel_probe` records that TRB and performs the same two BootROM calls
+used by cancellation helper `0x27f4` for logical EP2 OUT. It preserves the
+return from endpoint-command function `0x1268`, then calls `0x19e4` to clear
+the selected TRB and records its resulting state. The probe does not arm
+another transfer or receive data:
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/usb_out_cancel_probe.bin \
+    --output /tmp/exynos9825_usb_out_cancel_probe.bin \
+    --debug
+```
 
 ## Build
 

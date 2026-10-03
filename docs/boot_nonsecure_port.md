@@ -647,6 +647,14 @@ candidate for retiring the stale EP2 transfer without copying an unverified
 register sequence. It must be tested independently before receive arming is
 attempted again.
 
+`usb_out_cancel_probe` performs this isolated test. After the validated event
+repair, it records the EP2 TRB and reproduces the two calls made by `0x27f4`.
+It invokes `0x1268` with endpoint 2 and command 8, preserves that function's
+return, then invokes `0x19e4` to clear the selected TRB. It reports through a
+payload-local EP1 TRB and does not arm a new OUT transfer. A valid result must
+show the pre-cancellation HWO state, endpoint-command return `1`, and zeroed
+buffer, size, and control fields after the clear helper returns.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
