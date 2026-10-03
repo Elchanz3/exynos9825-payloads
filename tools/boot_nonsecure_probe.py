@@ -21,6 +21,7 @@ RX_PASS_MAGIC = b"RX1PASS!"
 RX_FAIL_MAGIC = b"RX1FAIL!"
 RX_EVENT_MAGIC = b"RX1EVT!!"
 RX_ARMED_MAGIC = b"RX1ARM!!"
+RX_OUT_MAGIC = b"RX1OUT!!"
 RX_PATTERN = bytes(range(0x40))
 RECORD_SIZE = 0x60
 EL3_FIELDS = (
@@ -75,6 +76,19 @@ RX_EVENT_FIELDS = (
     "trigger event word",
 )
 
+RX_OUT_FIELDS = (
+    "status",
+    "CurrentEL",
+    "software event index",
+    "transfer workspace base",
+    "EP2 maximum packet size",
+    "receive completion flag",
+    "EP2 direction selector",
+    "BootROM TRB buffer low",
+    "BootROM TRB size",
+    "BootROM TRB control",
+)
+
 
 def decode_record(data: bytes):
     if len(data) != RECORD_SIZE:
@@ -96,6 +110,8 @@ def decode_record(data: bytes):
         fields = RX_FIELDS
     elif magic == RX_EVENT_MAGIC:
         fields = RX_EVENT_FIELDS
+    elif magic == RX_OUT_MAGIC:
+        fields = RX_OUT_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
 
@@ -122,6 +138,11 @@ def decode_record(data: bytes):
     if magic == RX_EVENT_MAGIC:
         passed = values[0] == 1
         print(f"event repair result  = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic == RX_OUT_MAGIC:
+        passed = values[0] == 1
+        print(f"OUT state snapshot   = {'PASS' if passed else 'FAIL'}")
         return passed
 
     if magic in (RX_PASS_MAGIC, RX_FAIL_MAGIC):
@@ -208,6 +229,7 @@ def read_probe_records(device, usb_core) -> bytes:
             RX_PASS_MAGIC,
             RX_FAIL_MAGIC,
             RX_EVENT_MAGIC,
+            RX_OUT_MAGIC,
         ):
             break
 

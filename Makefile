@@ -7,7 +7,8 @@ OBJDUMP := $(CROSS_COMPILE)objdump
 BUILD_DIR := build
 PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
 	nonsecure_transition_probe usb_receive_probe usb_receive_direct_probe \
-	usb_receive_event_probe usb_event_repair_probe usb_receive_armed_probe
+	usb_receive_event_probe usb_event_repair_probe usb_receive_armed_probe \
+	usb_out_state_probe
 
 CPPFLAGS := -Iinclude
 ASFLAGS  := -ffreestanding -fno-pic -fno-pie -march=armv8-a
@@ -28,7 +29,8 @@ DISASMS    := $(PAYLOADS:%=$(BUILD_DIR)/%.disasm)
 	$(BUILD_DIR)/payloads/usb_receive_direct_probe.o \
 	$(BUILD_DIR)/payloads/usb_receive_event_probe.o \
 	$(BUILD_DIR)/payloads/usb_event_repair_probe.o \
-	$(BUILD_DIR)/payloads/usb_receive_armed_probe.o $(COMMON_OBJ)
+	$(BUILD_DIR)/payloads/usb_receive_armed_probe.o \
+	$(BUILD_DIR)/payloads/usb_out_state_probe.o $(COMMON_OBJ)
 
 .PHONY: all clean disasm verify
 
@@ -91,6 +93,11 @@ $(BUILD_DIR)/usb_event_repair_probe.elf: \
 
 $(BUILD_DIR)/usb_receive_armed_probe.elf: \
 	$(BUILD_DIR)/payloads/usb_receive_armed_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/usb_out_state_probe.elf: \
+	$(BUILD_DIR)/payloads/usb_out_state_probe.o \
 	arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 

@@ -613,6 +613,12 @@ The first operation in its lower transfer setup at `0x1920` waits for the
 existing BootROM TRB HWO bit to clear. The TRB and endpoint state must be read
 before attempting cancellation or another arming sequence.
 
+`usb_out_state_probe` captures that state after the validated event repair and
+before any receive setup. It reports the transfer workspace base, EP2 maximum
+packet size, completion flag, direction selector, and the BootROM TRB buffer,
+size, and control words. Its EP1 response uses a separate payload-local TRB,
+so the reported BootROM TRB is not modified by the diagnostic itself.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

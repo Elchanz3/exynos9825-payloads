@@ -47,6 +47,7 @@ shown above.
 | `usb_receive_event_probe` | Retires Houston's triggering event before the bounded receive | Hardware tested on SM-N975F. The host write completed, but no terminal record returned. |
 | `usb_event_repair_probe` | Reports immediately after retiring Houston's triggering event | Hardware tested on SM-N975F. Event repair and subsequent EP1 IN transfer passed. |
 | `usb_receive_armed_probe` | Arms EP2 OUT before requesting the bounded host transfer | Hardware tested on SM-N975F. Execution stopped inside the arming path before `RX1ARM!!`. |
+| `usb_out_state_probe` | Captures the BootROM EP2 and TRB state after event repair | Builds and passes host-side verification; hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -231,6 +232,17 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
 Hardware testing returned no `RX1ARM!!` record. Since the preceding event
 repair is independently validated, execution stopped while `0x1174` was
 arming the OUT endpoint. No test frame was sent in this run.
+
+`usb_out_state_probe` reads the relevant BootROM state before `0x1174`. It
+does not arm EP2 or receive data and uses a payload-local TRB for its report:
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/usb_out_state_probe.bin \
+    --output /tmp/exynos9825_usb_out_state_probe.bin \
+    --debug
+```
 
 ## Build
 
