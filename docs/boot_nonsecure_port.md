@@ -709,6 +709,21 @@ point. Before executing the Samsung stage, the iRAM state and function-pointer
 table consumed by its early path must be captured and matched to the
 hardware-specific BootROM.
 
+`epbl_state_probe` is the next read-only diagnostic. Static analysis of the
+current EPBL shows accesses throughout `0x02020000..0x0202013f`, including BL1
+size and checksum fields, security status, stage bookkeeping, and a dense
+table of 32-bit BootROM function pointers. The probe captures that entire
+`0x140`-byte window in four ordered records. It repairs the already validated
+Houston callback event so the records can be sent, but it does not invoke any
+captured pointer, receive a stage, execute EPBL, or access a newly inferred
+MMIO address.
+
+The hardware capture must be checked against the matching BootROM before a
+stage execution experiment is built. In particular, the initial EPBL path
+calls the pointer at `0x020200a8`, while later paths use entries through at
+least `0x0202010c`; treating names or values from the Exynos990 reference as
+S5E9825 facts would be unsafe.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

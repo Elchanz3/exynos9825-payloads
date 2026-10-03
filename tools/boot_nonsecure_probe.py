@@ -27,6 +27,12 @@ RX_CANCEL_MAGIC = b"RX1CANC!"
 EPBL_READY_MAGIC = b"EPBRDY!!"
 EPBL_PASS_MAGIC = b"EPBPASS!"
 EPBL_FAIL_MAGIC = b"EPBFAIL!"
+EPBL_STATE_MAGICS = {
+    b"EPS0IRAM": 0x02020000,
+    b"EPS1IRAM": 0x02020050,
+    b"EPS2IRAM": 0x020200A0,
+    b"EPS3IRAM": 0x020200F0,
+}
 RX_PATTERN = bytes(range(0x40))
 RECORD_SIZE = 0x60
 EL3_FIELDS = (
@@ -132,6 +138,15 @@ def decode_record(data: bytes):
         raise ValueError(f"unsupported record version {version}")
     if size != RECORD_SIZE:
         raise ValueError(f"record declares size 0x{size:x}")
+
+    if magic in EPBL_STATE_MAGICS:
+        address = EPBL_STATE_MAGICS[magic]
+        print(f"magic                = {magic!r}")
+        print(f"version              = {version}")
+        for offset in range(0, RECORD_SIZE - 0x10, 4):
+            value = struct.unpack_from("<I", data, 0x10 + offset)[0]
+            print(f"0x{address + offset:08x}           = 0x{value:08x}")
+        return True
 
     if magic == EL3_MAGIC:
         fields = EL3_FIELDS
@@ -301,6 +316,7 @@ def read_probe_records(device, usb_core) -> bytes:
             RX_CANCEL_MAGIC,
             EPBL_PASS_MAGIC,
             EPBL_FAIL_MAGIC,
+            b"EPS3IRAM",
         ):
             break
 

@@ -51,6 +51,7 @@ shown above.
 | `usb_out_cancel_probe` | Cancels the stale EP2 transfer through the BootROM path and reports the TRB before and after | Hardware tested on SM-N975F. `ENDTRANSFER` succeeded and the TRB was cleared. |
 | `usb_receive_rearmed_probe` | Cancels the stale transfer, rearms EP2 OUT, and receives a bounded test frame | Hardware tested on SM-N975F. The framed transfer returned `RX1PASS!` and all 64 bytes matched. |
 | `epbl_receive_probe` | Receives and verifies the current Binary 9 EPBL in a bounded iRAM diagnostic area without executing it | Hardware tested on SM-N975F. The complete `0x3000`-byte EPBL returned `EPBPASS!`. |
+| `epbl_state_probe` | Captures the complete iRAM state window consumed by the Binary 9 EPBL without calling its pointers | Builds and passes host-side verification; hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -197,6 +198,26 @@ The 192-byte two-record capture has SHA-256
 This validates the diagnostic destination and complete EPBL transfer. It does
 not validate the stock EPBL load address, its expected iRAM state, or EPBL
 execution.
+
+### Binary 9 EPBL state probe
+
+`epbl_state_probe` captures `0x02020000..0x0202013f`, including the BL1
+bookkeeping and function-pointer table read by the current EPBL. It returns
+four records named `EPS0IRAM` through `EPS3IRAM`. The host prints every
+32-bit word with its source address. The probe does not receive or execute a
+Samsung stage, call any captured pointer, or access a new MMIO block.
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_state_probe.bin \
+    --output /tmp/exynos9825_epbl_state_probe.bin \
+    --debug
+```
+
+The expected output contains four complete `0x60`-byte records and terminates
+after `EPS3IRAM`. Hardware validation is required before any captured function
+pointer or stock EPBL entry is called.
 
 ### Same-session USB receive probe
 
