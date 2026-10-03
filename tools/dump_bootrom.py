@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
 
 import struct
 import hashlib
@@ -22,7 +23,11 @@ USB_STRUCT_OFF = 0x480
 
 ROOT = Path(__file__).resolve().parents[1]
 
-PAYLOAD = ROOT / "payloads/Exynos9825_dump_bootrom.bin"
+PAYLOAD = ROOT / "build/dump_bootrom.bin"
+EXPECTED_SHA256 = (
+    "895eaa3b833a6fc1168461be3d7df384"
+    "16107872d530fdece90c7f689d671225"
+)
 
 
 def p32(v):
@@ -241,13 +246,20 @@ def main():
 
     if len(out) != target:
         print("INCOMPLETE DUMP")
-        return
+        return 1
 
     print("SIZE OK: complete 128 KiB BootROM")
 
     digest = hashlib.sha256(out).hexdigest()
 
     print(f"SHA-256  = {digest}")
+
+    if digest != EXPECTED_SHA256:
+        print(f"EXPECTED  = {EXPECTED_SHA256}")
+        print("HASH MISMATCH")
+        return 1
+
+    print("HASH OK: dump matches the validated exynos9825 BootROM")
 
     # Avoid leaving a root-owned dump when run through sudo.
     sudo_uid = os.environ.get("SUDO_UID")
@@ -263,6 +275,8 @@ def main():
         except OSError as e:
             print(f"warning: could not change output owner: {e}")
 
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

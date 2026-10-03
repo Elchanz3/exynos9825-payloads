@@ -1,3 +1,96 @@
 # exynos9825-payloads
 
-Payloads for Samsung Exynos 9825 BootROM research.
+Small AArch64 payloads for Samsung Exynos 9825 (S5E9825) BootROM research.
+The tested device is a Samsung Galaxy Note10+ SM-N975F.
+
+This repository is an incremental S5E9825 port of the payload infrastructure
+used by [halal-beef/exynos990-payloads](https://github.com/halal-beef/exynos990-payloads).
+The SoC separation also follows the approach used by the
+[Exynos9810 open-mini-bl1 change](https://github.com/Robotix22/open-mini-bl1/commit/954fe3e2aea5865db92b0a8be5d610040ac31aa4).
+
+## Safety and scope
+
+The current payloads only transmit data through an already configured USB
+endpoint. They do not write eFuses, OTP, UFS, or persistent flash. PMU, GPIO,
+CryptoCell, secure-boot state changes, and later boot-stage loading are not
+implemented because their S5E9825 addresses and behavior have not been
+validated.
+
+## Confirmed target data
+
+| Item | Value |
+| --- | --- |
+| EUB USB product | `Exynos9820` |
+| USB VID:PID | `04e8:1234` |
+| USB Booting version | `v0.5` |
+| Execution level | Secure EL3 (`CurrentEL = 0xC`) |
+| Houston receive address | `0x02022000` |
+| Houston USB structure offset | `0x0480` |
+| Houston quirks | `0` |
+| BootROM size | `0x20000` |
+| BootROM SHA-256 | `895eaa3b833a6fc1168461be3d7df38416107872d530fdece90c7f689d671225` |
+
+The USB product string identifies this device as `Exynos9820`; Houston must
+therefore use that string as the lookup key while applying the S5E9825 values
+shown above.
+
+## Payloads
+
+| Payload | Purpose | Status |
+| --- | --- | --- |
+| `dump_bootrom` | Sends BootROM as two sequential `0x10000` EP1 IN transfers | Hardware tested on SM-N975F. The new build is byte-identical to the validated binary. |
+| `houston_marker` | Sends `HOUSTON!` over EP1 IN after callback hijack | The transfer method and earlier standalone marker are hardware tested. This refactored build requires a device retest. |
+
+The BootROM dumper deliberately retains its standalone, known-good assembly
+instead of being refactored onto the common sender before another device test.
+
+## Build
+
+Install an AArch64 GNU toolchain and Python dependencies. On Debian or Ubuntu:
+
+```sh
+sudo apt install gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu python3-pip
+python3 -m pip install -r requirements.txt
+```
+
+Build and perform host-side layout checks:
+
+```sh
+make
+make verify
+make disasm
+```
+
+Artifacts are written to `build/`. You can override the toolchain prefix, for
+example `make CROSS_COMPILE=/opt/toolchains/bin/aarch64-none-elf-`.
+
+`make verify` checks the ELF entry address, the four-NOP Houston entry, and the
+maximum payload size before the confirmed TRB at `0x02024800`. These checks do
+not replace physical-device validation.
+
+## BootROM dump
+
+Build the payload, put the phone into EUB mode, and run:
+
+```sh
+python3 tools/dump_bootrom.py
+```
+
+The tool waits for `04e8:1234`, triggers the Houston callback overwrite, reads
+exactly `0x20000` bytes, writes `bootrom_exynos9825.bin`, and verifies the known
+SHA-256 digest.
+
+## USB re-enumeration status
+
+Automatic USB re-enumeration after code execution is not working. Calling the
+BootROM USB initialization helper at `0x000006e8` with
+`x0 = 0x02021400`, `w1 = 300`, and `w2 = 0` or `w2 = 1` did not make the device
+return. Houston's message that a missing device most likely indicates USB was
+reinitialized is not proof of re-enumeration on S5E9825.
+
+The current payloads use the known-good direct EP1 IN sender and do not call
+the USB initialization helper.
+
+## License
+
+This project is licensed under GPL-2.0-only. See [`LICENSE`](LICENSE).

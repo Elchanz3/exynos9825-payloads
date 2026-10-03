@@ -1,0 +1,60 @@
+CROSS_COMPILE ?= aarch64-linux-gnu-
+
+CC      := $(CROSS_COMPILE)gcc
+OBJCOPY := $(CROSS_COMPILE)objcopy
+OBJDUMP := $(CROSS_COMPILE)objdump
+
+BUILD_DIR := build
+PAYLOADS  := houston_marker dump_bootrom
+
+CPPFLAGS := -Iinclude
+ASFLAGS  := -ffreestanding -fno-pic -fno-pie -march=armv8-a
+LDFLAGS  := -nostdlib -nostartfiles -static -no-pie \
+	-Wl,--build-id=none -Wl,-z,max-page-size=0x1000 \
+	-Wl,-T,arch/arm64/payload.ld
+
+COMMON_OBJ := $(BUILD_DIR)/common/dwc3_ep1.o
+ELFS       := $(PAYLOADS:%=$(BUILD_DIR)/%.elf)
+BINS       := $(PAYLOADS:%=$(BUILD_DIR)/%.bin)
+DISASMS    := $(PAYLOADS:%=$(BUILD_DIR)/%.disasm)
+
+.SECONDARY: $(ELFS) $(BUILD_DIR)/payloads/houston_marker.o \
+	$(BUILD_DIR)/payloads/dump_bootrom.o $(COMMON_OBJ)
+
+.PHONY: all clean disasm verify
+
+all: $(BINS)
+
+disasm: $(DISASMS)
+
+verify: all
+	@python3 tools/verify_payloads.py $(ELFS)
+
+$(BUILD_DIR)/common/%.o: common/%.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/payloads/%.o: payloads/%.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/payloads/dump_bootrom.o: payloads/Exynos9825_dump_bootrom.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/houston_marker.elf: $(BUILD_DIR)/payloads/houston_marker.o \
+	$(COMMON_OBJ) arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/dump_bootrom.elf: $(BUILD_DIR)/payloads/dump_bootrom.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf
+	$(OBJCOPY) -O binary $< $@
+
+$(BUILD_DIR)/%.disasm: $(BUILD_DIR)/%.elf
+	$(OBJDUMP) -d $< > $@
+
+clean:
+	rm -rf $(BUILD_DIR)
