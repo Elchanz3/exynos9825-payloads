@@ -46,6 +46,7 @@ shown above.
 | `usb_receive_direct_probe` | Repeats the bounded receive without a preceding EP1 transfer | Hardware tested on SM-N975F. The host write completed, but no terminal record returned. |
 | `usb_receive_event_probe` | Retires Houston's triggering event before the bounded receive | Hardware tested on SM-N975F. The host write completed, but no terminal record returned. |
 | `usb_event_repair_probe` | Reports immediately after retiring Houston's triggering event | Hardware tested on SM-N975F. Event repair and subsequent EP1 IN transfer passed. |
+| `usb_receive_armed_probe` | Arms EP2 OUT before requesting the bounded host transfer | Builds and passes host-side verification; hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -211,6 +212,21 @@ Hardware testing returned `RX1EVT!!` with `CurrentEL = 0xc`. The software
 event index advanced from `0x0b` to `0x0c`, confirming that the original
 handler, index update, acknowledgement helper, and following EP1 transfer all
 completed. The triggering callback result word was zero.
+
+`usb_receive_armed_probe` performs the validated event repair, configures the
+bounded receive state, calls BootROM helper `0x1174`, and sends `RX1ARM!!` only
+after EP2 OUT has been armed. Its EP1 marker uses a payload-local TRB so the
+BootROM OUT TRB at `0x02024800` remains intact. The host then submits the test
+frame:
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/usb_receive_armed_probe.bin \
+    --receive-test \
+    --output /tmp/exynos9825_usb_receive_armed_probe.bin \
+    --debug
+```
 
 ## Build
 

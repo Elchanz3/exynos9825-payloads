@@ -20,6 +20,7 @@ RX_READY_MAGIC = b"RX1RDY!!"
 RX_PASS_MAGIC = b"RX1PASS!"
 RX_FAIL_MAGIC = b"RX1FAIL!"
 RX_EVENT_MAGIC = b"RX1EVT!!"
+RX_ARMED_MAGIC = b"RX1ARM!!"
 RX_PATTERN = bytes(range(0x40))
 RECORD_SIZE = 0x60
 EL3_FIELDS = (
@@ -91,7 +92,7 @@ def decode_record(data: bytes):
         fields = EL3_FIELDS
     elif magic in (NS_PASS_MAGIC, NS_FAIL_MAGIC, *NS_CHECKPOINTS):
         fields = NS_FIELDS
-    elif magic in (RX_READY_MAGIC, RX_PASS_MAGIC, RX_FAIL_MAGIC):
+    elif magic in (RX_READY_MAGIC, RX_ARMED_MAGIC, RX_PASS_MAGIC, RX_FAIL_MAGIC):
         fields = RX_FIELDS
     elif magic == RX_EVENT_MAGIC:
         fields = RX_EVENT_FIELDS
@@ -109,8 +110,13 @@ def decode_record(data: bytes):
     if magic == EL3_MAGIC:
         return True
 
-    if magic == RX_READY_MAGIC:
-        print("checkpoint            = waiting for framed EP2 OUT transfer")
+    if magic in (RX_READY_MAGIC, RX_ARMED_MAGIC):
+        checkpoint = (
+            "EP2 OUT armed; waiting for framed transfer"
+            if magic == RX_ARMED_MAGIC
+            else "waiting for framed EP2 OUT transfer"
+        )
+        print(f"checkpoint            = {checkpoint}")
         return None
 
     if magic == RX_EVENT_MAGIC:
@@ -223,7 +229,7 @@ def run_receive_probe(device, usb_core) -> bytes:
         raise RuntimeError(
             f"received 0x{len(ready):x} ready bytes, expected 0x{RECORD_SIZE:x}"
         )
-    if ready[:8] != RX_READY_MAGIC:
+    if ready[:8] not in (RX_READY_MAGIC, RX_ARMED_MAGIC):
         raise RuntimeError(f"unexpected receive-probe marker {ready[:8]!r}")
 
     print(f"Received record 1: {ready[:8]!r}")

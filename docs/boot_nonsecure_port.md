@@ -597,6 +597,15 @@ trigger callback result word was zero. The 96-byte raw record has SHA-256
 This isolates the remaining failure to the receive setup or polling performed
 after the event repair.
 
+`usb_receive_armed_probe` separates those phases. After the validated event
+repair, it sets the bounded destination and limit, calls the BootROM receive
+arming helper at `0x1174`, and only then reports `RX1ARM!!`. The host waits for
+this marker before submitting the same `0x4a`-byte frame. The marker uses a
+payload-local EP1 TRB and therefore does not overwrite the BootROM OUT TRB at
+`0x02024800`. The payload polls events using the BootROM dispatcher at
+`0x2af0` and reports the parser result. This tests endpoint arming and removes
+host-versus-device timing as a variable.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
