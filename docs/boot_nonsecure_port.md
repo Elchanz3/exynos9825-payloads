@@ -606,6 +606,13 @@ payload-local EP1 TRB and therefore does not overwrite the BootROM OUT TRB at
 `0x2af0` and reports the parser result. This tests endpoint arming and removes
 host-versus-device timing as a variable.
 
+The first hardware run returned zero ready bytes, so the host never submitted
+the test frame. The event-repair prefix is independently hardware-confirmed;
+therefore, execution stopped in the `0x1174` arming path before `RX1ARM!!`.
+The first operation in its lower transfer setup at `0x1920` waits for the
+existing BootROM TRB HWO bit to clear. The TRB and endpoint state must be read
+before attempting cancellation or another arming sequence.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
