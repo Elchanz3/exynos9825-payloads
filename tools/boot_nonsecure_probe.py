@@ -16,6 +16,10 @@ NS_CHECKPOINTS = {
     b"NS2COPY!": "candidate stub copied and read back",
     b"NS2ERET!": "immediately before ERET",
 }
+RX_READY_MAGIC = b"RX1RDY!!"
+RX_PASS_MAGIC = b"RX1PASS!"
+RX_FAIL_MAGIC = b"RX1FAIL!"
+RX_PATTERN = bytes(range(0x40))
 RECORD_SIZE = 0x60
 EL3_FIELDS = (
     "CurrentEL",
@@ -43,6 +47,19 @@ NS_FIELDS = (
     "lower x1",
 )
 
+RX_FIELDS = (
+    "status",
+    "BootROM return",
+    "destination",
+    "receive limit",
+    "mismatch offset",
+    "received bytes 0..7",
+    "received bytes 8..15",
+    "CurrentEL",
+    "reserved 0",
+    "reserved 1",
+)
+
 
 def decode_record(data: bytes):
     if len(data) != RECORD_SIZE:
@@ -60,6 +77,8 @@ def decode_record(data: bytes):
         fields = EL3_FIELDS
     elif magic in (NS_PASS_MAGIC, NS_FAIL_MAGIC, *NS_CHECKPOINTS):
         fields = NS_FIELDS
+    elif magic in (RX_READY_MAGIC, RX_PASS_MAGIC, RX_FAIL_MAGIC):
+        fields = RX_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
 
@@ -73,6 +92,15 @@ def decode_record(data: bytes):
 
     if magic == EL3_MAGIC:
         return True
+
+    if magic == RX_READY_MAGIC:
+        print("checkpoint            = waiting for framed EP2 OUT transfer")
+        return None
+
+    if magic in (RX_PASS_MAGIC, RX_FAIL_MAGIC):
+        passed = magic == RX_PASS_MAGIC and values[0] == 1 and values[1] == 1
+        print(f"receive result       = {'PASS' if passed else 'FAIL'}")
+        return passed
 
     if magic in NS_CHECKPOINTS:
         print(f"checkpoint            = {NS_CHECKPOINTS[magic]}")
@@ -146,10 +174,52 @@ def read_probe_records(device, usb_core) -> bytes:
         records.append(record)
         magic = record[:8]
         print(f"Received record {len(records)}: {magic!r}")
-        if magic in (EL3_MAGIC, NS_PASS_MAGIC, NS_FAIL_MAGIC):
+        if magic in (
+            EL3_MAGIC,
+            NS_PASS_MAGIC,
+            NS_FAIL_MAGIC,
+            RX_PASS_MAGIC,
+            RX_FAIL_MAGIC,
+        ):
             break
 
     return b"".join(records)
+
+
+def make_dnw_frame(payload: bytes) -> bytes:
+    total = len(payload) + 10
+    frame = bytearray(total)
+    struct.pack_into("<4sI", frame, 0, b"\x1bDNW", total)
+    frame[8:-2] = payload
+    struct.pack_into("<H", frame, total - 2, sum(payload) & 0xFFFF)
+    return bytes(frame)
+
+
+def run_receive_probe(device, usb_core) -> bytes:
+    ready = read_probe_record(device, usb_core)
+    if len(ready) != RECORD_SIZE:
+        raise RuntimeError(
+            f"received 0x{len(ready):x} ready bytes, expected 0x{RECORD_SIZE:x}"
+        )
+    if ready[:8] != RX_READY_MAGIC:
+        raise RuntimeError(f"unexpected receive-probe marker {ready[:8]!r}")
+
+    print(f"Received record 1: {ready[:8]!r}")
+    frame = make_dnw_frame(RX_PATTERN)
+    written = device.write(0x02, frame, timeout=5000)
+    if written != len(frame):
+        raise RuntimeError(f"short EP2 OUT write: 0x{written:x}/0x{len(frame):x}")
+    print(f"Sent framed test pattern: 0x{written:x} bytes")
+
+    result = read_probe_record(device, usb_core)
+    if len(result) != RECORD_SIZE:
+        raise RuntimeError(
+            f"received 0x{len(result):x} result bytes, expected 0x{RECORD_SIZE:x}"
+        )
+    if result[:8] not in (RX_PASS_MAGIC, RX_FAIL_MAGIC):
+        raise RuntimeError(f"unexpected receive result {result[:8]!r}")
+    print(f"Received record 2: {result[:8]!r}")
+    return ready + result
 
 
 def run_live(args) -> bytes:
@@ -207,7 +277,10 @@ def run_live(args) -> bytes:
             parameters["usb_struct_offset"],
         )
 
-        data = read_probe_records(device, usb.core)
+        if args.receive_test:
+            data = run_receive_probe(device, usb.core)
+        else:
+            data = read_probe_records(device, usb.core)
         if not data:
             raise RuntimeError("received no probe records")
 
@@ -233,6 +306,11 @@ def parse_args():
         type=Path,
         metavar="FILE",
         help="decode one or more captured 0x60-byte probe records",
+    )
+    parser.add_argument(
+        "--receive-test",
+        action="store_true",
+        help="send the framed test pattern requested by usb_receive_probe",
     )
     parser.add_argument(
         "--payload",

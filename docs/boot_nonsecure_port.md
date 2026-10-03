@@ -295,6 +295,32 @@ of the current `sboot.bin`. That proves the content boundaries for the stock
 EUB flow. It does not yet prove that the same five frames can be sent unchanged
 after a Houston callback hijack.
 
+## Binary 9 early-stage path
+
+The current EPBL is position-independent code with its executable entry at
+file offset `+0x10`. Its normal path derives the next receive destination by
+adding the BL1 size stored at `0x02020030` to `0x02023000`, then writes the
+result to `0x02020128`. With the expected `0x3000` BL1 size, that expression
+produces `0x02026000`. The terminal transfer reads `0x02020128`, adds `0x10`,
+and branches indirectly. This independently supports an FWBL1 entry at
+`0x02026010` without treating the Exynos990 value as an S5E9825 constant.
+
+The extracted FWBL1 starts with a Samsung `head` header and executable code at
+file offset `+0x10`. Its early code is position-dependent at `0x02026000`, and
+the literal `0x02026010` appears in initialization code. The visible prefix
+configures EL3 architectural state and several SoC blocks, then transfers into
+regions of the stored image that do not decode as the instructions expected by
+their direct callers. The later body is therefore transformed before use or
+otherwise unavailable to plain static disassembly. The DRAM initialization
+routine and its exact call point have not been recovered from the stored
+FWBL1 image.
+
+Executing isolated FWBL1 MMIO fragments would omit the EPBL verification,
+transformation, and state setup that precede them in the stock chain. The port
+will instead validate same-session BootROM receive first, then test the stock
+EPBL/FWBL1 path with explicit checkpoints. No FWBL1 MMIO writes are copied into
+the open payload.
+
 ## Secure-to-non-secure handoff analysis
 
 ### BootROM
@@ -503,6 +529,13 @@ The current Houston post-exploit loop cannot drive this stage unchanged
 because it waits for re-enumeration. Host support must retain the existing USB
 handle, wait for an explicit payload request or agreed receive point, and then
 send the selected Binary 9 stage frames in order.
+
+The first transport prerequisite is isolated in `usb_receive_probe`. It uses
+the artifact-derived BootROM ABI at `0x11cc` (`w0 = destination`, `w1 = size
+limit`) and asks the host for one normally framed DNW transfer after sending an
+`RX1RDY!!` checkpoint. The test destination `0x02030000`, limit `0x100`, and
+64-byte pattern remain local to the probe. A hardware PASS is required before
+this receive path can be used to feed a Samsung stage.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO

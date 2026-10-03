@@ -42,6 +42,7 @@ shown above.
 | `houston_marker` | Sends `HOUSTON!` over EP1 IN after callback hijack | Hardware tested on SM-N975F through Houston. `HOUSTON!` was received on the existing EP1 IN session. |
 | `boot_nonsecure_probe` | Reports EL3 and EL2 architectural state without leaving Secure EL3 | Hardware tested on SM-N975F through Houston. |
 | `nonsecure_transition_probe` | Diagnoses access to the Binary 9 sboot address before a minimal EL3 to Non-secure EL2h transition | Hardware tested on SM-N975F. Execution stops at the first access to `0xbfe80000`, before `ERET`. |
+| `usb_receive_probe` | Tests a bounded BootROM receive on the existing Houston USB session | Builds and passes host-side verification; hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -124,6 +125,25 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
     --houston-dir ../houston-pub \
     --payload build/nonsecure_transition_probe.bin \
     --output /tmp/exynos9825_nonsecure_transition_checkpoints.bin \
+    --debug
+```
+
+### Same-session USB receive probe
+
+`usb_receive_probe` sends `RX1RDY!!`, receives one framed 64-byte test pattern
+through the BootROM receive core at `0x11cc`, verifies it in iRAM, and reports
+`RX1PASS!` or `RX1FAIL!`. The candidate buffer at `0x02030000` is local to
+this diagnostic and is not promoted to a platform constant before hardware
+validation. The probe performs no persistent write.
+
+Run it with:
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/usb_receive_probe.bin \
+    --receive-test \
+    --output /tmp/exynos9825_usb_receive_probe.bin \
     --debug
 ```
 
