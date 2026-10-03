@@ -47,7 +47,7 @@ shown above.
 | `usb_receive_event_probe` | Retires Houston's triggering event before the bounded receive | Hardware tested on SM-N975F. The host write completed, but no terminal record returned. |
 | `usb_event_repair_probe` | Reports immediately after retiring Houston's triggering event | Hardware tested on SM-N975F. Event repair and subsequent EP1 IN transfer passed. |
 | `usb_receive_armed_probe` | Arms EP2 OUT before requesting the bounded host transfer | Hardware tested on SM-N975F. Execution stopped inside the arming path before `RX1ARM!!`. |
-| `usb_out_state_probe` | Captures the BootROM EP2 and TRB state after event repair | Workspace state is hardware-tested; corrected TRB snapshot awaits hardware validation. |
+| `usb_out_state_probe` | Captures the BootROM EP2 and TRB state after event repair | Hardware tested on SM-N975F. The existing EP2 TRB remains hardware-owned. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -250,8 +250,14 @@ EP2 direction selector of zero. That revision incorrectly treated
 `workspace + 0x170` as a TRB. BootROM helper `0x29a4` instead returns that
 address as the receive data buffer, explaining why the reported words held
 DNW and payload bytes. Disassembly of the matching S5E9825 BootROM shows that
-the EP2 path at `0x1920` selects `workspace + 0xa0`, or `0x020214a0`. The
-current artifact reads that location and still requires a hardware run.
+the EP2 path at `0x1920` selects `workspace + 0xa0`, or `0x020214a0`.
+
+The corrected probe passed on hardware. It reported buffer `0x02021570`, size
+`0x200`, and control `0x813`. Control bit zero is HWO and remains set, so the
+DWC3 still owns the existing EP2 TRB when the payload starts. This explains
+why the arming helper blocks in the HWO wait at `0x1920`. The corrected
+96-byte record has SHA-256
+`5817a9ecde272cd685dca56cc9b0d9c11f593d70a4ac3b358db9ed4a5ecd4841`.
 
 ## Build
 

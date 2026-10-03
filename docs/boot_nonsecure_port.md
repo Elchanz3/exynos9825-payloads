@@ -630,9 +630,22 @@ DNW and payload bytes and provide no evidence about HWO state.
 
 The endpoint-selection code at BootROM `0x1920` chooses `workspace + 0xa0`
 for logical EP2, making the EP2 TRB address `0x020214a0`. The corrected probe
-reads the buffer-low, size, and control fields from that address. This
-correction awaits hardware validation before its TRB result can be used to
-explain the `0x1174` stall.
+reads the buffer-low, size, and control fields from that address.
+
+Hardware validation of the corrected probe passed on 2026-10-03. It returned
+`RX1OUT!!` with buffer `0x02021570`, size `0x200`, and control `0x813`.
+Control bit zero is HWO, so the DWC3 still owns this EP2 TRB after the
+triggering event has been retired. The HWO polling loop at BootROM `0x1920`
+therefore explains why `0x1174` never reached the `RX1ARM!!` checkpoint. The
+96-byte raw record has SHA-256
+`5817a9ecde272cd685dca56cc9b0d9c11f593d70a4ac3b358db9ed4a5ecd4841`.
+
+The matching BootROM includes a bounded cancellation path at `0x27f4`. It
+issues endpoint command 8 through `0x1268` and then calls `0x19e4` to clear the
+selected TRB. In DWC3 terminology, command 8 is `ENDTRANSFER`. This path is a
+candidate for retiring the stale EP2 transfer without copying an unverified
+register sequence. It must be tested independently before receive arming is
+attempted again.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
