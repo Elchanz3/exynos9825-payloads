@@ -110,6 +110,11 @@ accessing the candidate DRAM address, a Non-secure instruction abort, and a
 copy mismatch. The test is volatile and does not load Samsung stages or write
 persistent storage.
 
+The first hardware attempt produced no USB record after the callback overwrite.
+The current revision sends `NS2PRE!!` before touching candidate DRAM,
+`NS2COPY!` after successful write/readback, and `NS2ERET!` immediately before
+the transition. This separates a stalled DRAM access from a later exception.
+
 Run it with:
 
 ```sh

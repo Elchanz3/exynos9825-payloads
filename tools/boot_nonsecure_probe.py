@@ -11,6 +11,11 @@ from pathlib import Path
 EL3_MAGIC = b"NSP1EL3!"
 NS_PASS_MAGIC = b"NS2PASS!"
 NS_FAIL_MAGIC = b"NS2FAIL!"
+NS_CHECKPOINTS = {
+    b"NS2PRE!!": "before candidate DRAM access",
+    b"NS2COPY!": "candidate stub copied and read back",
+    b"NS2ERET!": "immediately before ERET",
+}
 RECORD_SIZE = 0x60
 EL3_FIELDS = (
     "CurrentEL",
@@ -39,7 +44,7 @@ NS_FIELDS = (
 )
 
 
-def decode_record(data: bytes) -> bool:
+def decode_record(data: bytes):
     if len(data) != RECORD_SIZE:
         raise ValueError(
             f"record is 0x{len(data):x} bytes, expected 0x{RECORD_SIZE:x}"
@@ -53,7 +58,7 @@ def decode_record(data: bytes) -> bool:
 
     if magic == EL3_MAGIC:
         fields = EL3_FIELDS
-    elif magic in (NS_PASS_MAGIC, NS_FAIL_MAGIC):
+    elif magic in (NS_PASS_MAGIC, NS_FAIL_MAGIC, *NS_CHECKPOINTS):
         fields = NS_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
@@ -68,6 +73,10 @@ def decode_record(data: bytes) -> bool:
 
     if magic == EL3_MAGIC:
         return True
+
+    if magic in NS_CHECKPOINTS:
+        print(f"checkpoint            = {NS_CHECKPOINTS[magic]}")
+        return None
 
     ec = (values[1] >> 26) & 0x3F
     print(f"ESR exception class  = 0x{ec:02x}")
@@ -120,6 +129,27 @@ def read_probe_record(device, usb_core) -> bytes:
             received.extend(chunk)
 
     return bytes(received)
+
+
+def read_probe_records(device, usb_core) -> bytes:
+    records = []
+
+    while True:
+        record = read_probe_record(device, usb_core)
+        if not record:
+            break
+        if len(record) != RECORD_SIZE:
+            raise RuntimeError(
+                f"received partial record of 0x{len(record):x} bytes"
+            )
+
+        records.append(record)
+        magic = record[:8]
+        print(f"Received record {len(records)}: {magic!r}")
+        if magic in (EL3_MAGIC, NS_PASS_MAGIC, NS_FAIL_MAGIC):
+            break
+
+    return b"".join(records)
 
 
 def run_live(args) -> bytes:
@@ -177,11 +207,9 @@ def run_live(args) -> bytes:
             parameters["usb_struct_offset"],
         )
 
-        data = read_probe_record(device, usb.core)
-        if len(data) != RECORD_SIZE:
-            raise RuntimeError(
-                f"received 0x{len(data):x} bytes, expected 0x{RECORD_SIZE:x}"
-            )
+        data = read_probe_records(device, usb.core)
+        if not data:
+            raise RuntimeError("received no probe records")
 
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_bytes(data)
@@ -204,7 +232,7 @@ def parse_args():
         "--decode",
         type=Path,
         metavar="FILE",
-        help="decode an existing 0x60-byte probe record",
+        help="decode one or more captured 0x60-byte probe records",
     )
     parser.add_argument(
         "--payload",
@@ -236,7 +264,19 @@ def main() -> int:
     args = parse_args()
     try:
         data = args.decode.read_bytes() if args.decode else run_live(args)
-        passed = decode_record(data)
+        if len(data) % RECORD_SIZE:
+            raise ValueError(
+                f"capture is 0x{len(data):x} bytes, not a record multiple"
+            )
+
+        results = []
+        for offset in range(0, len(data), RECORD_SIZE):
+            if results:
+                print()
+            print(f"=== Record {offset // RECORD_SIZE + 1} ===")
+            results.append(decode_record(data[offset:offset + RECORD_SIZE]))
+
+        passed = bool(results and results[-1] is True)
     except (OSError, RuntimeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

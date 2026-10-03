@@ -20,10 +20,20 @@ payload_main:
     str     x20, [x19, #0x38]
     mrs     x20, VBAR_EL3
     str     x20, [x19, #0x40]
+    mrs     x20, CurrentEL
+    str     x20, [x19, #0x48]
 
     adr     x20, el3_vectors
     msr     VBAR_EL3, x20
     isb
+
+    /* Checkpoint 0: the payload and private EL3 vectors are active. */
+    ldr     x20, =0x212145525032534e  /* "NS2PRE!!" */
+    str     x20, [x19]
+    str     xzr, [x19, #0x10]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      s5e9825_usb_send_wait
 
     /* Phase 1: test whether the candidate DRAM address is writable in EL3. */
     mov     x20, #1
@@ -41,16 +51,28 @@ payload_main:
     cmp     x24, x26
     b.ne    copy_mismatch
 
-    /* Phase 2: discard stale instruction-cache contents. */
+    /* Checkpoint 2: the candidate address accepted and retained the stub. */
     mov     x20, #2
     str     x20, [x19, #0x10]
+    ldr     x20, =0x2159504f4332534e  /* "NS2COPY!" */
+    str     x20, [x19]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      s5e9825_usb_send_wait
+
+    /* Discard stale instruction-cache contents. */
     ic      iallu
     dsb     sy
     isb
 
-    /* Phase 3: attempt Secure EL3 -> Non-secure EL2h. */
+    /* Checkpoint 3: all preparation before ERET completed. */
     mov     x20, #3
     str     x20, [x19, #0x10]
+    ldr     x20, =0x215445524532534e  /* "NS2ERET!" */
+    str     x20, [x19]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      s5e9825_usb_send_wait
 
     mov     x20, #SCR_NS_AARCH64_ROUTED
     msr     SCR_EL3, x20

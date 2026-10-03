@@ -455,6 +455,15 @@ all other exceptions and copy mismatches use `NS2FAIL!`. The candidate remains
 local to this experiment rather than becoming a public S5E9825 platform
 constant until hardware confirms Non-secure execution.
 
+The first hardware attempt, using artifact SHA-256
+`4bef115dab82a46fc893ba75bc2032c6c0e3cd5b55eae20bb02ceac6aa819f23`,
+returned no USB record after the callback overwrite. Since that revision first
+accessed `0xbfe80000` before reporting, the result did not distinguish a stalled
+or asynchronous DRAM access from an earlier payload failure. The instrumented
+revision emits `NS2PRE!!` before candidate DRAM access, `NS2COPY!` after
+write/readback, and `NS2ERET!` immediately before exception return. Hardware
+validation of those checkpoints is pending.
+
 No full Samsung stage receive should be combined with this test. A PASS means
 the lower-EL stub fetched and reached EL3 through SMC. Any instruction abort,
 data abort, reset, or missing marker is a FAIL that must be analyzed before the
