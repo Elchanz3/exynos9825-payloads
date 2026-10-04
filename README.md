@@ -59,7 +59,7 @@ shown above.
 | `epbl_verify_staged_probe` | Runs the matched stock BootROM verifier only after separate receive, hash, and parser checkpoints | Hardware tested on SM-N975F. Exact reception, parsing, and the stock CryptoCell verification branch passed. |
 | `epbl_postload_staged_probe` | Runs the stock EUB post-load helper after authenticated EPBL checkpoints without entering EPBL | Hardware tested on SM-N975F. All five checkpoints and the stock post-load setup passed. |
 | `epbl_entry_staged_probe` | Reproduces the final stock timer and boot-flag calls, then reaches a controlled reporter through the authentic EPBL entry instruction | Hardware tested on SM-N975F. The authentic entry branch and controlled second-instruction hook passed. |
-| `epbl_dispatch_staged_probe` | Executes the authentic EPBL entry prefix and reports which first-stage dispatch path it selects | Host validated; hardware test pending. |
+| `epbl_dispatch_staged_probe` | Executes the authentic EPBL entry prefix and reports which first-stage dispatch path it selects | Hardware tested on SM-N975F. EPBL reception started, but no terminal dispatch record returned after `EPDRDY!!`. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
@@ -665,6 +665,12 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
 Full PASS requires `EPDRDY!!` followed directly by `EPDPASS!`. The terminal
 decoder reports either `cold` or `warm` and validates the selected target and
 the relocated reporter branch.
+
+The first SM-N975F run returned `EPDRDY!!`, accepted the complete framed EPBL,
+and then returned zero result bytes. The preserved 96-byte ready record has
+SHA-256 `eb2ad348285462b26aa8a0cb1e26d648c5004b7b372f10f8036f35842db18898`.
+This bounds the failure after EP2 OUT was armed but before either dispatch hook
+reported.
 
 ### Same-session USB receive probe
 

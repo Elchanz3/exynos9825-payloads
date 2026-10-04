@@ -1141,6 +1141,14 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
 The expected sequence is `EPDRDY!!` followed directly by `EPDPASS!`. The host
 accepts and checks both the cold and warm terminal layouts.
 
+The first SM-N975F hardware run received `EPDRDY!!` and sent all `0x300a`
+framed bytes, but then received zero result bytes. The preserved 96-byte ready
+record at `/tmp/exynos9825_epbl_dispatch_staged_probe.bin` has SHA-256
+`eb2ad348285462b26aa8a0cb1e26d648c5004b7b372f10f8036f35842db18898`.
+Because the earlier entry hook at `0x02022018` passed, the next probe should
+stop immediately after the load from `0x15860990`, before either dispatch
+path.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
