@@ -8,8 +8,23 @@
 #define PROBE_EPBL_DESTINATION         0x02022000
 #define PROBE_EPBL_SIZE                0x3000
 
-#ifdef EPBL_POSTLOAD_STAGED
+#ifdef EPBL_ENTRY_STAGED
 #define EPBL_VERIFY_PATH
+#define EPBL_POSTLOAD_PATH
+#define PROBE_INIT_MAGIC               "EPEINIT!"
+#define PROBE_READY_MAGIC              0x2121594452455045
+#define PROBE_HASH_MAGIC               0x2148534148455045
+#define PROBE_PARSED_MAGIC             0x4553524150455045
+#define PROBE_VERIFIED_MAGIC           0x5946524556455045
+#define PROBE_POSTLOAD_MAGIC           0x2154534f50455045
+#define PROBE_PASS_MAGIC               0x2153534150455045
+#define PROBE_FAIL_MAGIC               0x214c494146455045
+#define PROBE_VERIFY_FAIL_MAGIC        0x4c49414656455045
+#define PROBE_POSTLOAD_FAIL_MAGIC      0x4c49414650455045
+#define PROBE_FINALIZE_FAIL_MAGIC      0x4c49414646455045
+#elif defined(EPBL_POSTLOAD_STAGED)
+#define EPBL_VERIFY_PATH
+#define EPBL_POSTLOAD_PATH
 #define PROBE_INIT_MAGIC               "EPLINIT!"
 #define PROBE_READY_MAGIC              0x21215944524c5045
 #define PROBE_HASH_MAGIC               0x21485341484c5045
@@ -70,6 +85,16 @@
 #define PROBE_POSTLOAD_TIMING_START    0x02020084
 #define PROBE_POSTLOAD_TIMING_END      0x02020088
 #define PROBE_POSTLOAD_SECURITY        0x10001000
+#define PROBE_ENTRY_TIMING             0x00018768
+#define PROBE_SET_BOOT_FLAG            0x00016a10
+#define PROBE_EPBL_BRANCH              0x0001c9a0
+#define PROBE_EPBL_ENTRY               0x02022010
+#define PROBE_EPBL_HOOK_SITE           0x02022018
+#define PROBE_EPBL_ENTRY_INSN          0x14000002
+#define PROBE_EPBL_HOOK_INSN           0x580002d4
+#define PROBE_ENTRY_TIMING_WORD        0x0202008c
+#define PROBE_BOOT_FLAGS               0x02020070
+#define PROBE_ENTRY_FLAG               0x00800000
 
 HOUSTON_ENTRY payload_main
 
@@ -307,7 +332,7 @@ relocated_entry:
     cmp     w25, #1
     b.ne    verifier_failed
 
-#ifdef EPBL_POSTLOAD_STAGED
+#ifdef EPBL_POSTLOAD_PATH
     /* Snapshot the exact stock boundary before its post-load setup routine. */
     ldr     x20, =PROBE_VERIFIED_MAGIC
     str     x20, [x19]
@@ -373,11 +398,78 @@ relocated_entry:
     cmp     w27, w20
     b.ne    postload_failed
 
+#ifdef EPBL_ENTRY_STAGED
+    /* Complete the two stock calls immediately before the EPBL branch. */
+    ldr     w0, =PROBE_ENTRY_TIMING_WORD
+    ldr     x16, =PROBE_ENTRY_TIMING
+    blr     x16
+    mov     w0, #0
+    ldr     w1, =PROBE_ENTRY_FLAG
+    ldr     x16, =PROBE_SET_BOOT_FLAG
+    blr     x16
+
+    /* Preserve the real entry and hook only its second executed instruction. */
+    ldr     x20, =PROBE_EPBL_ENTRY
+    ldr     w21, [x20]
+    ldr     x22, =PROBE_EPBL_HOOK_SITE
+    ldr     w23, [x22]
+    ldr     w24, =PROBE_EPBL_ENTRY_INSN
+    cmp     w21, w24
+    b.ne    finalize_failed
+    ldr     w24, =PROBE_EPBL_HOOK_INSN
+    cmp     w23, w24
+    b.ne    finalize_failed
+
+    adr     x24, epbl_entry_hook
+    sub     x24, x24, x22
+    asr     x24, x24, #2
+    and     w24, w24, #0x03ffffff
+    ldr     w26, =0x14000000
+    orr     w24, w24, w26
+    str     w24, [x22]
+    dsb     sy
+    isb
+    ldr     w24, [x22]
+
+    adr     x19, probe_record
+    ldr     x20, =PROBE_POSTLOAD_MAGIC
+    str     x20, [x19]
+    str     xzr, [x19, #0x10]
+    ldr     x20, =PROBE_EPBL_ENTRY
+    str     x20, [x19, #0x20]
+    ldr     x20, =PROBE_EPBL_HOOK_SITE
+    str     x20, [x19, #0x28]
+    ldr     w20, =PROBE_EPBL_ENTRY_INSN
+    str     x20, [x19, #0x30]
+    ldr     w20, =PROBE_EPBL_HOOK_INSN
+    str     x20, [x19, #0x38]
+    str     x24, [x19, #0x40]
+    ldr     x20, =PROBE_ENTRY_TIMING_WORD
+    ldr     w21, [x20]
+    str     x21, [x19, #0x48]
+    ldr     x20, =PROBE_BOOT_FLAGS
+    ldr     w22, [x20]
+    str     x22, [x19, #0x50]
+    mrs     x23, CurrentEL
+    str     x23, [x19, #0x58]
+    tst     w22, #PROBE_ENTRY_FLAG
+    b.eq    finalize_failed
+
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+
+    /* Enter through the exact stock indirect branch helper at 0x1c9a0. */
+    ldr     x16, =PROBE_EPBL_BRANCH
+    blr     x16
+    b       finalize_failed
+#else
     ldr     x20, =PROBE_PASS_MAGIC
     str     x20, [x19]
     mov     x20, #1
     str     x20, [x19, #0x10]
     b       report_result
+#endif
 #else
     ldr     x20, =PROBE_PASS_MAGIC
     str     x20, [x19]
@@ -418,12 +510,50 @@ verifier_failed:
     b       report_result
 #endif
 
-#ifdef EPBL_POSTLOAD_STAGED
+#ifdef EPBL_POSTLOAD_PATH
 postload_failed:
     ldr     x20, =PROBE_POSTLOAD_FAIL_MAGIC
     str     x20, [x19]
     mov     x20, #0x105
     str     x20, [x19, #0x10]
+    b       report_result
+#endif
+
+#ifdef EPBL_ENTRY_STAGED
+finalize_failed:
+    adr     x19, probe_record
+    ldr     x20, =PROBE_FINALIZE_FAIL_MAGIC
+    str     x20, [x19]
+    mov     x20, #0x106
+    str     x20, [x19, #0x10]
+    b       report_result
+
+/* Reached only after the stock helper fetched the authentic EPBL entry. */
+epbl_entry_hook:
+    adr     x19, probe_record
+    ldr     x20, =PROBE_PASS_MAGIC
+    str     x20, [x19]
+    mov     x20, #1
+    str     x20, [x19, #0x10]
+    ldr     x20, =PROBE_EPBL_ENTRY
+    str     x20, [x19, #0x20]
+    ldr     x20, =PROBE_EPBL_HOOK_SITE
+    str     x20, [x19, #0x28]
+    ldr     w20, =PROBE_EPBL_ENTRY_INSN
+    str     x20, [x19, #0x30]
+    ldr     w20, =PROBE_EPBL_HOOK_INSN
+    str     x20, [x19, #0x38]
+    ldr     x20, =PROBE_EPBL_HOOK_SITE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x40]
+    ldr     x20, =PROBE_ENTRY_TIMING_WORD
+    ldr     w21, [x20]
+    str     x21, [x19, #0x48]
+    ldr     x20, =PROBE_BOOT_FLAGS
+    ldr     w21, [x20]
+    str     x21, [x19, #0x50]
+    mrs     x20, CurrentEL
+    str     x20, [x19, #0x58]
     b       report_result
 #endif
 

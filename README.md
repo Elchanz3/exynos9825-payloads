@@ -57,7 +57,8 @@ shown above.
 | `epbl_header_noic_probe` | Repeats the matched Binary 9 header-parser probe without the blocking EL3 I-cache operation | Hardware tested on SM-N975F. Relocation and EP2 rearm passed; USB disconnected during the EPBL host write. |
 | `epbl_header_staged_probe` | Separates exact EPBL reception and hash verification from the matched BootROM header-parser call | Hardware tested on SM-N975F. Exact reception and the stock header parser passed. |
 | `epbl_verify_staged_probe` | Runs the matched stock BootROM verifier only after separate receive, hash, and parser checkpoints | Hardware tested on SM-N975F. Exact reception, parsing, and the stock CryptoCell verification branch passed. |
-| `epbl_postload_staged_probe` | Runs the stock EUB post-load setup after authenticated EPBL checkpoints without entering EPBL | Hardware tested on SM-N975F. All five checkpoints and the stock post-load setup passed. |
+| `epbl_postload_staged_probe` | Runs the stock EUB post-load helper after authenticated EPBL checkpoints without entering EPBL | Hardware tested on SM-N975F. All five checkpoints and the stock post-load setup passed. |
+| `epbl_entry_staged_probe` | Reproduces the final stock timer and boot-flag calls, then reaches a controlled reporter through the authentic EPBL entry instruction | Host validated; hardware test pending. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
@@ -544,8 +545,8 @@ and the terminal record reported Secure EL3 (`CurrentEL = 0xc`). The saved
 384-byte capture at `/tmp/exynos9825_epbl_verify_staged_probe.bin` has SHA-256
 `c4c43705ac582927382ef51d1151bb7563af9a01b269243847deb78798da4cb0`.
 
-`epbl_postload_staged_probe` extends the proven chain to the last stock
-BootROM call before EPBL execution. Static analysis of the matching BootROM
+`epbl_postload_staged_probe` extends the proven chain through the stock
+post-load helper before EPBL execution. Static analysis of the matching BootROM
 shows that the EUB dispatcher calls `0x5b58` with argument one after verifier
 `0xc9a0` succeeds. It then records another timing value and eventually
 branches through the EPBL entry pointer at `0x02022010`. Routine `0x5b58(1)`
@@ -587,6 +588,43 @@ remained one, parsed size and checksum remained `0x3000` and `0xb82c55e7`,
 and the terminal record reported Secure EL3 (`CurrentEL = 0xc`). The saved
 480-byte capture at `/tmp/exynos9825_epbl_postload_staged_probe.bin` has
 SHA-256 `070e973bb646e79a4e08d8bef7f3fb1be7273e9b32e85c19cf2401e06a42e6de`.
+
+`epbl_entry_staged_probe` extends that boundary through the remaining stock
+sequence. It calls timing helper `0x18768` with state word `0x0202008c`, then
+calls `0x16a10(0, 0x00800000)` to set the corresponding volatile flag in
+`0x02020070`. The stock branch helper at `0x1c9a0` loads the EPBL entry address
+`0x02022010`. The authentic instruction there, `b 0x02022018`, remains
+unchanged.
+
+Before entering, the probe verifies that the original instruction at
+`0x02022018` is `0x580002d4` and temporarily replaces only that instruction
+with a direct branch to its relocated reporter. `EPEPOST!` records both
+original instructions, the read-back branch, the timing word, the boot flags,
+and `CurrentEL`. After the host consumes that record, the probe calls the
+stock branch helper. `EPEPASS!` can be emitted only after the CPU fetches and
+follows the authentic entry instruction. The probe does not execute later
+EPBL initialization and makes no persistent write.
+
+The locally validated 1968-byte artifact has SHA-256
+`dbca9e730f25757d0ff3165e265bb0a944a5266a670fb636891932d50daa6f31`.
+
+```sh
+cd /home/chanz22/Documents/GitHub/exynos9825-payloads
+
+sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
+    tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_entry_staged_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_entry_staged_probe.bin \
+    --debug
+```
+
+Full PASS requires `EPERDY!!`, `EPEHASH!`, `EPEPARSE`, `EPEVERFY`,
+`EPEPOST!`, and `EPEPASS!` in that order. `EPEFFAIL` with status `0x106`
+identifies an unexpected original entry instruction, a missing boot flag, or
+a return from the stock branch helper.
 
 ### Same-session USB receive probe
 

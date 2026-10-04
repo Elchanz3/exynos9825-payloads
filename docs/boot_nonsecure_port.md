@@ -1009,9 +1009,10 @@ Static analysis now identifies that next stock boundary. The EUB dispatcher
 calls boot-mode helper `0x17d0c`, then `0x5780`. The observed
 `0x0202006c = 0x10003000` matches the return-one branch in `0x5780`, so after
 loader and verifier routine `0xcc68` succeeds the dispatcher calls
-`0x5b58(1)`. It then calls timing helper `0x18768` with `0x0202008c`, performs
-its cache operation, and reaches the branch helper at `0x1c9a0`. That helper
-loads and branches to the EPBL entry pointer at `0x02022010`.
+`0x5b58(1)`. It then calls timing helper `0x18768` with `0x0202008c`, calls
+`0x16a10(0, 0x00800000)` to set the corresponding volatile flag in
+`0x02020070`, and reaches the branch helper at `0x1c9a0`. That helper loads and
+branches to the EPBL entry pointer at `0x02022010`.
 
 Routine `0x5b58(1)` is still a distinct, non-executing boundary. It first
 calls `0x18768(0x02020084)`, calls security-state routine `0x599c`, calls
@@ -1046,7 +1047,8 @@ from their pre-call values to `0x384` and `0x39c`; security status
 saved 480-byte capture at `/tmp/exynos9825_epbl_postload_staged_probe.bin`
 has SHA-256
 `070e973bb646e79a4e08d8bef7f3fb1be7273e9b32e85c19cf2401e06a42e6de`.
-This completes the last isolated stock setup call before EPBL entry.
+This completes the isolated stock post-load helper before the final timer,
+flag, and branch calls.
 
 ```sh
 cd /home/chanz22/Documents/GitHub/exynos9825-payloads
@@ -1058,6 +1060,42 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
     --receive-test \
     --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
     --output /tmp/exynos9825_epbl_postload_staged_probe.bin \
+    --debug
+```
+
+`epbl_entry_staged_probe` covers the next controlled boundary. It calls
+`0x18768(0x0202008c)` and `0x16a10(0, 0x00800000)`, verifies that the EPBL entry
+at `0x02022010` still contains `0x14000002` (`b 0x02022018`), and verifies that
+the instruction at `0x02022018` is the expected `0x580002d4`. It preserves the
+authentic first entry instruction and temporarily replaces only the second
+instruction with a direct branch to the reporter in the relocated worker.
+
+The `EPEPOST!` record proves that the patch reads back as a branch to
+`0x02025480`, timing state `0x0202008c` is nonzero, volatile boot flag
+`0x00800000` is present in `0x02020070`, and execution remains at Secure EL3.
+Only after the host consumes this record does the probe call the exact stock
+branch helper at `0x1c9a0`. `EPEPASS!` is reachable only after that helper
+loads `0x02022010` and the CPU fetches and follows the authentic first EPBL
+instruction. This probe does not run later EPBL initialization and makes no
+persistent write.
+
+The host-built 1968-byte artifact has SHA-256
+`dbca9e730f25757d0ff3165e265bb0a944a5266a670fb636891932d50daa6f31`.
+The expected record sequence is `EPERDY!!`, `EPEHASH!`, `EPEPARSE`,
+`EPEVERFY`, `EPEPOST!`, and `EPEPASS!`. `EPEFFAIL` with status `0x106`
+identifies an unexpected entry instruction, a missing final boot flag, or a
+return from the stock branch helper.
+
+```sh
+cd /home/chanz22/Documents/GitHub/exynos9825-payloads
+
+sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
+    tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_entry_staged_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_entry_staged_probe.bin \
     --debug
 ```
 
