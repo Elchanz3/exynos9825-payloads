@@ -62,6 +62,12 @@ EPBL_ENTRY_STAGED_FAIL_MAGIC = b"EPEFAIL!"
 EPBL_ENTRY_STAGED_VERIFY_FAIL_MAGIC = b"EPEVFAIL"
 EPBL_ENTRY_STAGED_POSTLOAD_FAIL_MAGIC = b"EPEPFAIL"
 EPBL_ENTRY_STAGED_FINALIZE_FAIL_MAGIC = b"EPEFFAIL"
+EPBL_DISPATCH_STAGED_READY_MAGIC = b"EPDRDY!!"
+EPBL_DISPATCH_STAGED_PASS_MAGIC = b"EPDPASS!"
+EPBL_DISPATCH_STAGED_FAIL_MAGIC = b"EPDFAIL!"
+EPBL_DISPATCH_STAGED_VERIFY_FAIL_MAGIC = b"EPDVFAIL"
+EPBL_DISPATCH_STAGED_POSTLOAD_FAIL_MAGIC = b"EPDPFAIL"
+EPBL_DISPATCH_STAGED_FINALIZE_FAIL_MAGIC = b"EPDFFAIL"
 RELOCATION_COPY_MAGIC = b"RELCPY!!"
 RELOCATION_PASS_MAGIC = b"RELPASS!"
 RELOCATION_FAIL_MAGIC = b"RELFAIL!"
@@ -229,6 +235,19 @@ EPBL_ENTRY_FIELDS = (
     "CurrentEL",
 )
 
+EPBL_DISPATCH_FIELDS = (
+    "status",
+    "post-load return",
+    "dispatch checkpoint",
+    "dispatch MMIO 0x15860990",
+    "dispatch state 0x02020128",
+    "selected target",
+    "original checkpoint instruction",
+    "patched checkpoint instruction",
+    "boot flags 0x02020070",
+    "CurrentEL",
+)
+
 RELOCATION_FIELDS = (
     "status",
     "source address",
@@ -341,6 +360,8 @@ def decode_record(data: bytes):
         EPBL_ENTRY_STAGED_HASH_MAGIC,
         EPBL_ENTRY_STAGED_PARSED_MAGIC,
         EPBL_ENTRY_STAGED_FAIL_MAGIC,
+        EPBL_DISPATCH_STAGED_READY_MAGIC,
+        EPBL_DISPATCH_STAGED_FAIL_MAGIC,
     ):
         fields = EPBL_HEADER_FIELDS
     elif magic in (
@@ -367,6 +388,15 @@ def decode_record(data: bytes):
         EPBL_ENTRY_STAGED_FINALIZE_FAIL_MAGIC,
     ):
         fields = EPBL_ENTRY_FIELDS
+    elif magic in (
+        EPBL_DISPATCH_STAGED_PASS_MAGIC,
+        EPBL_DISPATCH_STAGED_FINALIZE_FAIL_MAGIC,
+    ):
+        fields = EPBL_DISPATCH_FIELDS
+    elif magic == EPBL_DISPATCH_STAGED_VERIFY_FAIL_MAGIC:
+        fields = EPBL_VERIFY_FIELDS
+    elif magic == EPBL_DISPATCH_STAGED_POSTLOAD_FAIL_MAGIC:
+        fields = EPBL_POSTLOAD_FIELDS
     elif magic in (
         RELOCATION_COPY_MAGIC,
         RELOCATION_PASS_MAGIC,
@@ -535,32 +565,37 @@ def decode_record(data: bytes):
         EPBL_VERIFY_STAGED_READY_MAGIC,
         EPBL_POSTLOAD_STAGED_READY_MAGIC,
         EPBL_ENTRY_STAGED_READY_MAGIC,
+        EPBL_DISPATCH_STAGED_READY_MAGIC,
     ):
         checkpoint = (
-            "staged entry probe armed EP2 OUT at the stock EPBL destination"
-            if magic == EPBL_ENTRY_STAGED_READY_MAGIC
+            "staged dispatch probe armed EP2 OUT at the stock EPBL destination"
+            if magic == EPBL_DISPATCH_STAGED_READY_MAGIC
             else (
-                "staged post-load probe armed EP2 OUT at the stock EPBL destination"
-                if magic == EPBL_POSTLOAD_STAGED_READY_MAGIC
+                "staged entry probe armed EP2 OUT at the stock EPBL destination"
+                if magic == EPBL_ENTRY_STAGED_READY_MAGIC
                 else (
-                    "staged verifier armed EP2 OUT at the stock EPBL destination"
-                    if magic == EPBL_VERIFY_STAGED_READY_MAGIC
+                    "staged post-load probe armed EP2 OUT at the stock EPBL destination"
+                    if magic == EPBL_POSTLOAD_STAGED_READY_MAGIC
                     else (
-                        "staged no-cache worker armed EP2 OUT at the stock EPBL destination"
-                        if magic == EPBL_HEADER_STAGED_READY_MAGIC
+                        "staged verifier armed EP2 OUT at the stock EPBL destination"
+                        if magic == EPBL_VERIFY_STAGED_READY_MAGIC
                         else (
-                            "relocated no-cache worker armed EP2 OUT at the stock EPBL destination"
-                            if magic == EPBL_HEADER_NOIC_READY_MAGIC
+                            "staged no-cache worker armed EP2 OUT at the stock EPBL destination"
+                            if magic == EPBL_HEADER_STAGED_READY_MAGIC
                             else (
-                                "relocated worker armed EP2 OUT at the stock EPBL destination"
-                                if magic == EPBL_HEADER_READY_MAGIC
+                                "relocated no-cache worker armed EP2 OUT at the stock EPBL destination"
+                                if magic == EPBL_HEADER_NOIC_READY_MAGIC
                                 else (
-                                    "EP2 OUT armed; waiting for Binary 9 EPBL"
-                                    if magic == EPBL_READY_MAGIC
+                                    "relocated worker armed EP2 OUT at the stock EPBL destination"
+                                    if magic == EPBL_HEADER_READY_MAGIC
                                     else (
-                                        "EP2 OUT armed; waiting for framed transfer"
-                                        if magic == RX_ARMED_MAGIC
-                                        else "waiting for framed EP2 OUT transfer"
+                                        "EP2 OUT armed; waiting for Binary 9 EPBL"
+                                        if magic == EPBL_READY_MAGIC
+                                        else (
+                                            "EP2 OUT armed; waiting for framed transfer"
+                                            if magic == RX_ARMED_MAGIC
+                                            else "waiting for framed EP2 OUT transfer"
+                                        )
                                     )
                                 )
                             )
@@ -780,6 +815,14 @@ def decode_record(data: bytes):
         return None if passed else False
 
     if magic in (
+        EPBL_DISPATCH_STAGED_FAIL_MAGIC,
+        EPBL_DISPATCH_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_DISPATCH_STAGED_POSTLOAD_FAIL_MAGIC,
+    ):
+        print("controlled dispatch  = FAIL")
+        return False
+
+    if magic in (
         EPBL_POSTLOAD_STAGED_PASS_MAGIC,
         EPBL_POSTLOAD_STAGED_POSTLOAD_FAIL_MAGIC,
         EPBL_ENTRY_STAGED_POSTLOAD_FAIL_MAGIC,
@@ -843,6 +886,46 @@ def decode_record(data: bytes):
             return None if checkpoint_passed else False
         print(f"patched branch target = 0x{branch_target:016x}")
         print(f"controlled EPBL entry = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic in (
+        EPBL_DISPATCH_STAGED_PASS_MAGIC,
+        EPBL_DISPATCH_STAGED_FINALIZE_FAIL_MAGIC,
+    ):
+        checkpoint = values[2]
+        mmio_value = values[3] & 0xFFFFFFFF
+        state_value = values[4] & 0xFFFFFFFF
+        expected_target = (
+            0x02022DF8
+            if checkpoint == 0x02022054
+            else (state_value + 0x10) & 0xFFFFFFFF
+        )
+        expected_original = (
+            0x14000369 if checkpoint == 0x02022054 else 0xD61F0080
+        )
+        branch_immediate = values[7] & 0x03FFFFFF
+        if branch_immediate & 0x02000000:
+            branch_immediate -= 0x04000000
+        branch_target = (checkpoint + branch_immediate * 4) & 0xFFFFFFFFFFFFFFFF
+        checkpoint_valid = (
+            (checkpoint == 0x02022054 and mmio_value != 1)
+            or (checkpoint == 0x0202206C and mmio_value == 1)
+        )
+        passed = (
+            magic == EPBL_DISPATCH_STAGED_PASS_MAGIC
+            and values[0] == 1
+            and values[1] == 1
+            and checkpoint_valid
+            and values[5] == expected_target
+            and values[6] == expected_original
+            and (values[7] & 0xFC000000) == 0x14000000
+            and 0x02025000 <= branch_target < 0x02026000
+            and (values[8] & 0x00800000) != 0
+            and values[9] == 0xC
+        )
+        print(f"patched branch target = 0x{branch_target:016x}")
+        print(f"EPBL dispatch path    = {'warm' if checkpoint == 0x0202206C else 'cold'}")
+        print(f"controlled dispatch  = {'PASS' if passed else 'FAIL'}")
         return passed
 
     if magic in (
@@ -1062,6 +1145,7 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_VERIFY_STAGED_FAIL_MAGIC,
         EPBL_POSTLOAD_STAGED_FAIL_MAGIC,
         EPBL_ENTRY_STAGED_FAIL_MAGIC,
+        EPBL_DISPATCH_STAGED_FAIL_MAGIC,
     ):
         records.append(ready)
         print(f"Received record {len(records)}: {ready[:8]!r}")
@@ -1076,6 +1160,7 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_VERIFY_STAGED_READY_MAGIC,
         EPBL_POSTLOAD_STAGED_READY_MAGIC,
         EPBL_ENTRY_STAGED_READY_MAGIC,
+        EPBL_DISPATCH_STAGED_READY_MAGIC,
     ):
         raise RuntimeError(f"unexpected receive-probe marker {ready[:8]!r}")
 
@@ -1089,6 +1174,7 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_VERIFY_STAGED_READY_MAGIC,
         EPBL_POSTLOAD_STAGED_READY_MAGIC,
         EPBL_ENTRY_STAGED_READY_MAGIC,
+        EPBL_DISPATCH_STAGED_READY_MAGIC,
     ):
         if receive_payload is None:
             raise RuntimeError("EPBL probe requires --receive-file")
@@ -1152,6 +1238,11 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_ENTRY_STAGED_VERIFY_FAIL_MAGIC,
         EPBL_ENTRY_STAGED_POSTLOAD_FAIL_MAGIC,
         EPBL_ENTRY_STAGED_FINALIZE_FAIL_MAGIC,
+        EPBL_DISPATCH_STAGED_PASS_MAGIC,
+        EPBL_DISPATCH_STAGED_FAIL_MAGIC,
+        EPBL_DISPATCH_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_DISPATCH_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_DISPATCH_STAGED_FINALIZE_FAIL_MAGIC,
     ):
         raise RuntimeError(f"unexpected receive result {result[:8]!r}")
     records.append(result)

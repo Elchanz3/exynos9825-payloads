@@ -1110,6 +1110,37 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
     --output /tmp/exynos9825_epbl_entry_staged_probe.bin
 ```
 
+`epbl_dispatch_staged_probe` advances through the authentic entry prefix and
+stops at both possible exits from its first decision. The prefix reads
+`0x15860990`. When the value differs from one, execution reaches the direct
+branch at `0x02022054`, whose original instruction `0x14000369` selects
+`0x02022df8`. When the value equals one, execution reaches `0x0202206c`, whose
+original `0xd61f0080` branches through `x4`; the EPBL computes that target as
+the 32-bit state value at `0x02020128` plus `0x10`.
+
+The probe validates the authentic entry and both dispatch instructions before
+temporarily replacing the two exits with branches to separate relocated
+reporters. `EPDPASS!` identifies the exit actually reached and records the
+MMIO value, dispatch state, selected target, original and patched instruction,
+boot flags, and `CurrentEL`. Neither selected target is executed. The locally
+validated 1576-byte artifact has SHA-256
+`228c44b288c36a9f4fd39ef109f05e7f3cf640dca20de7384b32a733b4ccf9ac`.
+
+```sh
+cd /home/chanz22/Documents/GitHub/exynos9825-payloads
+
+sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
+    tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_dispatch_staged_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_dispatch_staged_probe.bin
+```
+
+The expected sequence is `EPDRDY!!` followed directly by `EPDPASS!`. The host
+accepts and checks both the cold and warm terminal layouts.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

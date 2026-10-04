@@ -59,6 +59,7 @@ shown above.
 | `epbl_verify_staged_probe` | Runs the matched stock BootROM verifier only after separate receive, hash, and parser checkpoints | Hardware tested on SM-N975F. Exact reception, parsing, and the stock CryptoCell verification branch passed. |
 | `epbl_postload_staged_probe` | Runs the stock EUB post-load helper after authenticated EPBL checkpoints without entering EPBL | Hardware tested on SM-N975F. All five checkpoints and the stock post-load setup passed. |
 | `epbl_entry_staged_probe` | Reproduces the final stock timer and boot-flag calls, then reaches a controlled reporter through the authentic EPBL entry instruction | Hardware tested on SM-N975F. The authentic entry branch and controlled second-instruction hook passed. |
+| `epbl_dispatch_staged_probe` | Executes the authentic EPBL entry prefix and reports which first-stage dispatch path it selects | Host validated; hardware test pending. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
@@ -635,6 +636,35 @@ Full PASS requires `EPERDY!!` followed directly by `EPEPASS!`. `EPEFAIL!`,
 and post-load setup. `EPEFFAIL` with status `0x106` identifies an unexpected
 original entry instruction, a missing boot flag, or a return from the stock
 branch helper.
+
+`epbl_dispatch_staged_probe` moves the controlled hook past the first EPBL
+decision. It preserves the entry prefix through the read of `0x15860990` and
+patches both possible dispatch instructions before entry. A cold path stops at
+`0x02022054`, immediately before the branch to `0x02022df8`. A warm path stops
+at `0x0202206c`, before the indirect branch to the 32-bit value from
+`0x02020128` plus `0x10`. The probe records the MMIO value, dispatch state,
+selected target, original and patched checkpoint instructions, boot flags, and
+`CurrentEL`. It does not execute either selected target or make a persistent
+write.
+
+The locally validated 1576-byte artifact has SHA-256
+`228c44b288c36a9f4fd39ef109f05e7f3cf640dca20de7384b32a733b4ccf9ac`.
+
+```sh
+cd /home/chanz22/Documents/GitHub/exynos9825-payloads
+
+sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
+    tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_dispatch_staged_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_dispatch_staged_probe.bin
+```
+
+Full PASS requires `EPDRDY!!` followed directly by `EPDPASS!`. The terminal
+decoder reports either `cold` or `warm` and validates the selected target and
+the relocated reporter branch.
 
 ### Same-session USB receive probe
 

@@ -11,7 +11,7 @@ PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
 	usb_out_state_probe usb_out_cancel_probe usb_receive_rearmed_probe \
 	epbl_receive_probe epbl_state_probe epbl_header_probe \
 	epbl_header_noic_probe epbl_header_staged_probe epbl_verify_staged_probe \
-	epbl_postload_staged_probe epbl_entry_staged_probe \
+	epbl_postload_staged_probe epbl_entry_staged_probe epbl_dispatch_staged_probe \
 	relocation_probe \
 	relocation_fetch_probe relocation_fetch_control_probe \
 	relocation_fetch_noic_probe icache_maintenance_probe icache_target_probe
@@ -47,6 +47,7 @@ DISASMS    := $(PAYLOADS:%=$(BUILD_DIR)/%.disasm)
 	$(BUILD_DIR)/payloads/epbl_verify_staged_probe.o \
 	$(BUILD_DIR)/payloads/epbl_postload_staged_probe.o \
 	$(BUILD_DIR)/payloads/epbl_entry_staged_probe.o \
+	$(BUILD_DIR)/payloads/epbl_dispatch_staged_probe.o \
 	$(BUILD_DIR)/payloads/relocation_probe.o \
 	$(BUILD_DIR)/payloads/relocation_fetch_probe.o \
 	$(BUILD_DIR)/payloads/relocation_fetch_control_probe.o \
@@ -109,6 +110,11 @@ $(BUILD_DIR)/payloads/epbl_entry_staged_probe.o: \
 	payloads/epbl_header_probe.S
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_ENTRY_STAGED -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_dispatch_staged_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_DISPATCH_STAGED -c $< -o $@
 
 $(BUILD_DIR)/houston_marker.elf: $(BUILD_DIR)/payloads/houston_marker.o \
 	$(COMMON_OBJ) arch/arm64/payload.ld
@@ -205,6 +211,11 @@ $(BUILD_DIR)/epbl_postload_staged_probe.elf: \
 
 $(BUILD_DIR)/epbl_entry_staged_probe.elf: \
 	$(BUILD_DIR)/payloads/epbl_entry_staged_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_dispatch_staged_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_dispatch_staged_probe.o \
 	arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 
