@@ -11,7 +11,7 @@ PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
 	usb_out_state_probe usb_out_cancel_probe usb_receive_rearmed_probe \
 	epbl_receive_probe epbl_state_probe epbl_header_probe relocation_probe \
 	relocation_fetch_probe relocation_fetch_control_probe \
-	icache_maintenance_probe icache_target_probe
+	relocation_fetch_noic_probe icache_maintenance_probe icache_target_probe
 
 CPPFLAGS := -Iinclude
 ASFLAGS  := -ffreestanding -fno-pic -fno-pie -march=armv8-a
@@ -42,6 +42,7 @@ DISASMS    := $(PAYLOADS:%=$(BUILD_DIR)/%.disasm)
 	$(BUILD_DIR)/payloads/relocation_probe.o \
 	$(BUILD_DIR)/payloads/relocation_fetch_probe.o \
 	$(BUILD_DIR)/payloads/relocation_fetch_control_probe.o \
+	$(BUILD_DIR)/payloads/relocation_fetch_noic_probe.o \
 	$(BUILD_DIR)/payloads/icache_maintenance_probe.o \
 	$(BUILD_DIR)/payloads/icache_target_probe.o $(COMMON_OBJ)
 
@@ -70,6 +71,11 @@ $(BUILD_DIR)/payloads/relocation_fetch_control_probe.o: \
 	payloads/relocation_fetch_probe.S
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(ASFLAGS) -DRELOCATION_FETCH_CONTROL -c $< -o $@
+
+$(BUILD_DIR)/payloads/relocation_fetch_noic_probe.o: \
+	payloads/relocation_fetch_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DRELOCATION_FETCH_NOIC -c $< -o $@
 
 $(BUILD_DIR)/houston_marker.elf: $(BUILD_DIR)/payloads/houston_marker.o \
 	$(COMMON_OBJ) arch/arm64/payload.ld
@@ -156,6 +162,11 @@ $(BUILD_DIR)/relocation_fetch_probe.elf: \
 
 $(BUILD_DIR)/relocation_fetch_control_probe.elf: \
 	$(BUILD_DIR)/payloads/relocation_fetch_control_probe.o \
+	$(COMMON_OBJ) arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/relocation_fetch_noic_probe.elf: \
+	$(BUILD_DIR)/payloads/relocation_fetch_noic_probe.o \
 	$(COMMON_OBJ) arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 

@@ -56,6 +56,7 @@ shown above.
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
+| `relocation_fetch_noic_probe` | Copies and branches to the two-instruction control stub at `0x02024000` without an I-cache maintenance operation | Built and statically verified. Hardware validation is pending. |
 | `icache_maintenance_probe` | Isolates the EL3 instruction-cache invalidation sequence without relocating code | Hardware tested on SM-N975F. Only the pre-invalidation checkpoint returned. |
 | `icache_target_probe` | Invalidates only the candidate target line with `ic ivau` while execution remains in the Houston image | Hardware tested on SM-N975F. Only the pre-invalidation checkpoint returned. |
 
@@ -389,6 +390,27 @@ EL3 execution, `SCTLR_EL3 = 0x00c51838`, and target `0x02024000`. The raw
 Because the invalidated line is outside the executing image, this result
 isolates the stop to `ic ivau` or the following completion barrier. It still
 does not test an instruction fetch from `0x02024000`.
+
+`relocation_fetch_noic_probe` now performs that fetch test without executing
+either failing I-cache operation. It copies the same eight-byte register-only
+stub to `0x02024000`, reads it back, and sends `RNCPRE!!`. It then branches
+directly to the target. The stub records a signature and returns to the linked
+image, which sends `RNCPASS!`. A private EL3 vector reports `RNCFAIL!` if the
+fetch raises a synchronous exception. The target has not previously been an
+instruction address in this boot session, and EL3 data caching is disabled.
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/relocation_fetch_noic_probe.bin \
+    --output /tmp/exynos9825_relocation_fetch_noic_probe.bin \
+    --debug
+```
+
+`RNCPRE!!` followed by `RNCPASS!` proves Secure EL3 execution and return at
+`0x02024000` without I-cache maintenance. `RNCFAIL!` reports the exception.
+Receiving only `RNCPRE!!` bounds the stop to the branch, target fetch, stub, or
+return path.
 
 ### Same-session USB receive probe
 

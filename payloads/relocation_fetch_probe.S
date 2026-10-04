@@ -4,7 +4,14 @@
 #include "dwc3_ep1.h"
 
 #define PROBE_RECORD_SIZE              0x60
-#ifdef RELOCATION_FETCH_CONTROL
+#ifdef RELOCATION_FETCH_NOIC
+#define PROBE_RELOCATION_ADDRESS       0x02024000
+#define PROBE_REACHED_SIGNATURE        0x2143455845434e52
+#define PROBE_PRE_MAGIC                0x2121455250434e52
+#define PROBE_PASS_MAGIC               0x2153534150434e52
+#define PROBE_FAIL_MAGIC               0x214c494146434e52
+#define PROBE_INIT_MAGIC               "RNCINIT!"
+#elif defined(RELOCATION_FETCH_CONTROL)
 #define PROBE_RELOCATION_ADDRESS       0x02024000
 #define PROBE_REACHED_SIGNATURE        0x2143455845434652
 #define PROBE_PASS_MAGIC               0x2153534150434652
@@ -55,9 +62,19 @@ payload_main:
     adr     x20, probe_record
     ldr     x21, =PROBE_REACHED_SIGNATURE
 
+#ifdef RELOCATION_FETCH_NOIC
+    ldr     x22, =PROBE_PRE_MAGIC
+    str     x22, [x20]
+    str     xzr, [x20, #0x10]
+    str     xzr, [x20, #0x50]
+    mov     x0, x20
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      s5e9825_usb_send_wait
+#else
     ic      iallu
     dsb     sy
     isb
+#endif
     br      x23
 
 relocated_return:

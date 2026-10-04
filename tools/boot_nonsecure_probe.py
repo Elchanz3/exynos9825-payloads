@@ -37,6 +37,9 @@ RELOCATION_FETCH_PASS_MAGIC = b"RFXPASS!"
 RELOCATION_FETCH_FAIL_MAGIC = b"RFXFAIL!"
 RELOCATION_FETCH_CONTROL_PASS_MAGIC = b"RFCPASS!"
 RELOCATION_FETCH_CONTROL_FAIL_MAGIC = b"RFCFAIL!"
+RELOCATION_FETCH_NOIC_PRE_MAGIC = b"RNCPRE!!"
+RELOCATION_FETCH_NOIC_PASS_MAGIC = b"RNCPASS!"
+RELOCATION_FETCH_NOIC_FAIL_MAGIC = b"RNCFAIL!"
 ICACHE_PRE_MAGIC = b"ICHPRE!!"
 ICACHE_PASS_MAGIC = b"ICHPASS!"
 ICACHE_FAIL_MAGIC = b"ICHFAIL!"
@@ -260,6 +263,9 @@ def decode_record(data: bytes):
         RELOCATION_FETCH_FAIL_MAGIC,
         RELOCATION_FETCH_CONTROL_PASS_MAGIC,
         RELOCATION_FETCH_CONTROL_FAIL_MAGIC,
+        RELOCATION_FETCH_NOIC_PRE_MAGIC,
+        RELOCATION_FETCH_NOIC_PASS_MAGIC,
+        RELOCATION_FETCH_NOIC_FAIL_MAGIC,
     ):
         fields = RELOCATION_FETCH_FIELDS
     elif magic in (ICACHE_PRE_MAGIC, ICACHE_PASS_MAGIC, ICACHE_FAIL_MAGIC):
@@ -312,20 +318,32 @@ def decode_record(data: bytes):
         RELOCATION_FETCH_FAIL_MAGIC,
         RELOCATION_FETCH_CONTROL_PASS_MAGIC,
         RELOCATION_FETCH_CONTROL_FAIL_MAGIC,
+        RELOCATION_FETCH_NOIC_PASS_MAGIC,
+        RELOCATION_FETCH_NOIC_FAIL_MAGIC,
     ):
         ec = (values[1] >> 26) & 0x3F
-        is_control = magic in (
+        is_noic = magic in (
+            RELOCATION_FETCH_NOIC_PASS_MAGIC,
+            RELOCATION_FETCH_NOIC_FAIL_MAGIC,
+        )
+        is_control = is_noic or magic in (
             RELOCATION_FETCH_CONTROL_PASS_MAGIC,
             RELOCATION_FETCH_CONTROL_FAIL_MAGIC,
         )
         expected_magic = (
-            RELOCATION_FETCH_CONTROL_PASS_MAGIC
-            if is_control
-            else RELOCATION_FETCH_PASS_MAGIC
+            RELOCATION_FETCH_NOIC_PASS_MAGIC
+            if is_noic
+            else (
+                RELOCATION_FETCH_CONTROL_PASS_MAGIC
+                if is_control
+                else RELOCATION_FETCH_PASS_MAGIC
+            )
         )
         expected_target = 0x02024000 if is_control else 0x02025000
         expected_signature = (
-            0x2143455845434652 if is_control else 0x2143455845584652
+            0x2143455845434E52
+            if is_noic
+            else (0x2143455845434652 if is_control else 0x2143455845584652)
         )
         passed = (
             magic == expected_magic
@@ -342,6 +360,13 @@ def decode_record(data: bytes):
         print(f"ESR exception class  = 0x{ec:02x}")
         print(f"relocated fetch      = {'PASS' if passed else 'FAIL'}")
         return passed
+
+    if magic == RELOCATION_FETCH_NOIC_PRE_MAGIC:
+        print(
+            "checkpoint            = copied target verified; before branch "
+            "without I-cache maintenance"
+        )
+        return None
 
     if magic == ICACHE_PRE_MAGIC:
         print("checkpoint            = before EL3 instruction-cache invalidation")
@@ -559,6 +584,8 @@ def read_probe_records(device, usb_core) -> bytes:
             RELOCATION_FETCH_FAIL_MAGIC,
             RELOCATION_FETCH_CONTROL_PASS_MAGIC,
             RELOCATION_FETCH_CONTROL_FAIL_MAGIC,
+            RELOCATION_FETCH_NOIC_PASS_MAGIC,
+            RELOCATION_FETCH_NOIC_FAIL_MAGIC,
             ICACHE_PASS_MAGIC,
             ICACHE_FAIL_MAGIC,
             ICACHE_TARGET_PASS_MAGIC,

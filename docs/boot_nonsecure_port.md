@@ -875,6 +875,16 @@ Since the operation targets a line outside the executing image, the stop is
 bounded to `ic ivau` or the following completion barrier. It does not establish
 whether an uncached first fetch from `0x02024000` can execute.
 
+`relocation_fetch_noic_probe` is the corresponding first-fetch control. It
+copies the same eight-byte register-only stub to `0x02024000`, verifies the
+copy, sends `RNCPRE!!`, and branches without any `ic` instruction. A successful
+stub writes its signature and returns to the linked image, which sends
+`RNCPASS!`; the private EL3 vector reports `RNCFAIL!` for a synchronous
+exception. The target has not been used as an instruction address during this
+boot session, and `SCTLR_EL3.C` is clear. The probe performs no Samsung-stage
+execution, MMIO write, or persistent-storage access. Hardware validation is
+pending.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
