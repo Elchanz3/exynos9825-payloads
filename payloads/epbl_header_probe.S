@@ -8,6 +8,19 @@
 #define PROBE_EPBL_DESTINATION         0x02022000
 #define PROBE_EPBL_SIZE                0x3000
 
+#ifdef EPBL_HEADER_NOIC
+#define PROBE_INIT_MAGIC               "EPNINIT!"
+#define PROBE_RELOCATED_MAGIC          0x21214c45524e5045
+#define PROBE_READY_MAGIC              0x21215944524e5045
+#define PROBE_PASS_MAGIC               0x21535341504e5045
+#define PROBE_FAIL_MAGIC               0x214c4941464e5045
+#else
+#define PROBE_INIT_MAGIC               "EPHINIT!"
+#define PROBE_READY_MAGIC              0x2121594452485045
+#define PROBE_PASS_MAGIC               0x2153534150485045
+#define PROBE_FAIL_MAGIC               0x214c494146485045
+#endif
+
 /* Binary 9 N975FXXS9HWHA EPBL. */
 /* SHA-256: d25e155bb032eebe43a832de9781bc6c88ee8f599b4888159ddedd6fde42511d */
 #define PROBE_EPBL_FNV1A64             0xfdfb55e38228e523
@@ -41,11 +54,13 @@ payload_main:
     cmp     x9, x10
     b.lo    1b
 
-    /* EL3 enters with the I-cache enabled, so discard stale target lines. */
+#ifndef EPBL_HEADER_NOIC
+    /* Preserve the original diagnostic for comparison with its hardware run. */
     dsb     sy
     ic      iallu
     dsb     sy
     isb
+#endif
 
     adr     x12, relocated_entry
     adr     x13, relocated_start
@@ -65,6 +80,17 @@ relocated_entry:
     str     x21, [x20, #0x20]
     ldr     x21, =PROBE_EPBL_DESTINATION
     str     x21, [x20, #0x28]
+
+#ifdef EPBL_HEADER_NOIC
+    mrs     x21, CurrentEL
+    str     x21, [x20, #0x58]
+    ldr     x21, =PROBE_RELOCATED_MAGIC
+    str     x21, [x20]
+    str     xzr, [x20, #0x10]
+    mov     x0, x20
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+#endif
 
     /* Complete the event whose callback Houston replaced. */
     ldr     x22, =S5E9825_USB_STATE_POINTER
@@ -126,7 +152,7 @@ relocated_entry:
     blr     x16
 
     adr     x20, probe_record
-    ldr     x21, =0x2121594452485045  /* "EPHRDY!!" */
+    ldr     x21, =PROBE_READY_MAGIC
     str     x21, [x20]
     mov     x0, x20
     mov     w1, #PROBE_RECORD_SIZE
@@ -188,7 +214,7 @@ relocated_entry:
     cmp     x25, x24
     b.ne    parsed_state_failed
 
-    ldr     x20, =0x2153534150485045  /* "EPHPASS!" */
+    ldr     x20, =PROBE_PASS_MAGIC
     str     x20, [x19]
     mov     x20, #1
     str     x20, [x19, #0x10]
@@ -221,7 +247,7 @@ report_setup_failure:
     adr     x19, probe_record
 
 report_failure:
-    ldr     x21, =0x214c494146485045  /* "EPHFAIL!" */
+    ldr     x21, =PROBE_FAIL_MAGIC
     str     x21, [x19]
     str     x20, [x19, #0x10]
 
@@ -261,7 +287,7 @@ probe_usb_send_wait:
 .balign 8
 .type probe_record, %object
 probe_record:
-    .ascii  "EPHINIT!"
+    .ascii  PROBE_INIT_MAGIC
     .word   1
     .word   PROBE_RECORD_SIZE
     .zero   PROBE_RECORD_SIZE - 0x10

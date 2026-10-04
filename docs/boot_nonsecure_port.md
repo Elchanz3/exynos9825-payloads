@@ -892,6 +892,23 @@ fetch and return without explicit instruction-cache maintenance in this state.
 The earlier relocation probes cannot be used as evidence of an execute
 restriction because their shared `ic` operation was the blocking boundary.
 
+The next hardware boundary is `epbl_header_noic_probe`, a separate build of
+the header-parser diagnostic that preserves the original failed artifact. It
+copies the self-contained worker to `0x02025000` and branches there without
+executing `ic`. The worker emits `EPNREL!!` immediately after relocated entry,
+then performs the hardware-confirmed USB event repair, stale OUT cancellation,
+and EP2 rearm sequence. It emits `EPNRDY!!` before the host sends the exact
+Binary 9 EPBL to `0x02022000`. After reception, `EPNPASS!` requires raw FNV-1a
+`0xfdfb55e38228e523`, parser return one, parsed size `0x3000`, checksum
+`0xb82c55e7`, and first qword `0x18`; `EPNFAIL!` preserves the existing bounded
+failure codes. The probe does not call the following verification routine,
+execute EPBL, access guessed MMIO, or write persistent storage.
+
+The expected record order is `EPNREL!!`, `EPNRDY!!`, and `EPNPASS!`. A stop
+after the first record isolates the USB setup path after successful execution
+at `0x02025000`. A stop after the second record isolates reception, raw-image
+verification, or parsing. Hardware validation is pending.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

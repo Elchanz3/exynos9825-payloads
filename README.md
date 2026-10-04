@@ -53,6 +53,7 @@ shown above.
 | `epbl_receive_probe` | Receives and verifies the current Binary 9 EPBL in a bounded iRAM diagnostic area without executing it | Hardware tested on SM-N975F. The complete `0x3000`-byte EPBL returned `EPBPASS!`. |
 | `epbl_state_probe` | Captures the complete iRAM state window consumed by the Binary 9 EPBL without calling its pointers | Hardware tested on SM-N975F. All four state records were received. |
 | `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Hardware tested on SM-N975F. No `EPHRDY!!` record returned, so execution stopped before the receive checkpoint. |
+| `epbl_header_noic_probe` | Repeats the matched Binary 9 header-parser probe without the blocking EL3 I-cache operation | Built and locally validated. Hardware validation is pending. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
@@ -421,6 +422,34 @@ This proves that freshly written iRAM at `0x02024000` is executable in Secure
 EL3 without explicit instruction-cache maintenance in the tested state. It
 also identifies the `ic` operations as the blocker in the earlier relocation
 diagnostics.
+
+`epbl_header_noic_probe` applies the validated first-fetch method to the
+header-parser experiment as a separate payload. It leaves the original
+`epbl_header_probe` unchanged, copies the same self-contained worker to
+`0x02025000`, and branches there without an `ic` instruction. The relocated
+worker sends `EPNREL!!` before touching the stale USB event state. After event
+repair, stale OUT cancellation, and EP2 rearming, it sends `EPNRDY!!`. The host
+then sends only the pinned `0x3000`-byte Binary 9 EPBL. `EPNPASS!` requires the
+raw FNV-1a and the matched BootROM header-parser outputs to agree; `EPNFAIL!`
+reports the bounded failure status. The probe does not execute EPBL or write
+persistent storage.
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_header_noic_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_header_noic_probe.bin \
+    --debug
+```
+
+PASS requires `EPNREL!!`, `EPNRDY!!`, and `EPNPASS!` in that order. An
+`EPNREL!!` record alone confirms execution at `0x02025000` and bounds the stop
+to the USB repair or ready-report path. `EPNREL!!` plus `EPNRDY!!` confirms the
+receive setup and bounds a later stop to transfer completion, raw verification,
+or header parsing. No record means that the new target fetch did not reach the
+first relocated checkpoint.
 
 ### Same-session USB receive probe
 
