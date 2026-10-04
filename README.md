@@ -59,7 +59,7 @@ shown above.
 | `epbl_verify_staged_probe` | Runs the matched stock BootROM verifier only after separate receive, hash, and parser checkpoints | Hardware tested on SM-N975F. Exact reception, parsing, and the stock CryptoCell verification branch passed. |
 | `epbl_postload_staged_probe` | Runs the stock EUB post-load helper after authenticated EPBL checkpoints without entering EPBL | Hardware tested on SM-N975F. All five checkpoints and the stock post-load setup passed. |
 | `epbl_entry_staged_probe` | Reproduces the final stock timer and boot-flag calls, then reaches a controlled reporter through the authentic EPBL entry instruction | Hardware tested on SM-N975F. The authentic entry branch and controlled second-instruction hook passed. |
-| `epbl_mmio_staged_probe` | Executes through the first authentic EPBL MMIO load and reports before the comparison | Host validated; hardware test pending. |
+| `epbl_mmio_staged_probe` | Executes through the first authentic EPBL MMIO load and reports before the comparison | Hardware reached `EPMRDY!!`, received the EPBL, then stopped before the post-load hook. |
 | `epbl_dispatch_staged_probe` | Executes the authentic EPBL entry prefix and reports which first-stage dispatch path it selects | Initial hardware run stopped after `EPDRDY!!`; the reporter was revised to preserve the authentic MMIO value and awaits retest. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
@@ -661,6 +661,15 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
 ```
 
 Full PASS requires `EPMRDY!!` followed directly by `EPMPASS!`.
+
+The 2026-10-04 SM-N975F run returned `EPMRDY!!`, accepted the complete
+`0x300a`-byte framed EPBL, and then returned zero result bytes. The preserved
+96-byte ready record at `/tmp/exynos9825_epbl_mmio_staged_probe.bin` has
+SHA-256 `9dec878ed833c5ed117bc3fffe4eff70e5a1da75b3b0bbd829def56cd40c494b`.
+The earlier hook at `0x02022018` passed, while this hook at `0x02022020` did
+not. This bounds the stop to the authentic literal load and the following
+load from `0x15860990`; it does not by itself distinguish a synchronous abort,
+a stalled MMIO transaction, or a failure to fetch the later patched hook.
 
 `epbl_dispatch_staged_probe` moves the controlled hook past the first EPBL
 decision. It preserves the entry prefix through the read of `0x15860990` and

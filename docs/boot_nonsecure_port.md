@@ -1133,6 +1133,15 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
 
 The expected sequence is `EPMRDY!!` followed directly by `EPMPASS!`.
 
+The 2026-10-04 SM-N975F run returned `EPMRDY!!`, accepted the complete
+`0x300a`-byte framed EPBL, and then returned zero result bytes. The preserved
+96-byte ready record at `/tmp/exynos9825_epbl_mmio_staged_probe.bin` has
+SHA-256 `9dec878ed833c5ed117bc3fffe4eff70e5a1da75b3b0bbd829def56cd40c494b`.
+Because the earlier hook at `0x02022018` passed and the hook at `0x02022020`
+did not report, execution stopped during the authentic literal-load/MMIO-load
+pair or before the later hook became fetch-visible. The result alone does not
+distinguish an EL3 synchronous abort from a stalled MMIO transaction.
+
 `epbl_dispatch_staged_probe` advances through the authentic entry prefix and
 stops at both possible exits from its first decision. The prefix reads
 `0x15860990`. When the value differs from one, execution reaches the direct
