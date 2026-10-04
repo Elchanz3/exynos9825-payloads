@@ -850,7 +850,16 @@ original Houston-linked image. It first sends `ICHPRE!!`, then executes only
 sends `ICHPASS!`. A private EL3 vector reports `ICHFAIL!` with the architectural
 exception state if a synchronous exception is taken. The probe performs no
 relocation, indirect branch, BootROM call, Samsung-stage operation, MMIO write,
-or persistent-storage access. Hardware validation is pending.
+or persistent-storage access.
+
+The hardware run on 2026-10-03 returned only `ICHPRE!!`. The record confirmed
+EL3 execution, `VBAR_EL3 = 0x0001c000`, and `SCTLR_EL3 = 0x00c51838` before the
+operation. No `ICHPASS!` or `ICHFAIL!` record followed. The 96-byte capture at
+`/tmp/exynos9825_icache_maintenance_probe.bin` has SHA-256
+`b6efa10462b29684d7c89650eeca2986b8f7b4de2835648aabe39af301ee1125`.
+Therefore the global invalidation path stops in `dsb sy; ic iallu; dsb sy;
+isb` or at the first instruction refill after that sequence. This result does
+not establish an execute restriction at `0x02024000` or `0x02025000`.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO

@@ -56,7 +56,7 @@ shown above.
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
-| `icache_maintenance_probe` | Isolates the EL3 instruction-cache invalidation sequence without relocating code | Built and statically verified. Hardware validation is pending. |
+| `icache_maintenance_probe` | Isolates the EL3 instruction-cache invalidation sequence without relocating code | Hardware tested on SM-N975F. Only the pre-invalidation checkpoint returned. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -351,6 +351,15 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
 Both `ICHPRE!!` and `ICHPASS!` are required for PASS. Receiving only
 `ICHPRE!!` isolates the stop to the cache-maintenance sequence or the first
 instruction fetch immediately after it.
+
+The hardware run on 2026-10-03 returned `ICHPRE!!` and no terminal record.
+The captured state was EL3 with `SCTLR_EL3 = 0x00c51838`. The raw 96-byte
+record has SHA-256
+`b6efa10462b29684d7c89650eeca2986b8f7b4de2835648aabe39af301ee1125`.
+This result shows that global instruction-cache invalidation does not return to
+the reporting path used by this probe. It does not distinguish a stop in
+`ic iallu` from failure to refill the next instruction, and it does not prove
+that either relocation target is non-executable.
 
 ### Same-session USB receive probe
 
