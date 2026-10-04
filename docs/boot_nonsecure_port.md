@@ -1035,7 +1035,18 @@ the EPBL entry at `0x02022010` and makes no persistent write.
 The host-built 1544-byte artifact has SHA-256
 `4535245f668b52e53bb671c8408e4435a21cfc331df3d481dddab5263da7b20c`.
 Its full expected sequence is `EPLRDY!!`, `EPLHASH!`, `EPLPARSE`,
-`EPLVERFY`, and `EPLPASS!`. Hardware validation is pending.
+`EPLVERFY`, and `EPLPASS!`.
+
+The 2026-10-04 hardware run completed all five records. Routine `0x5b58(1)`
+returned one and changed volatile security information `0x0202007c` from
+zero to `0x10003004`. Timing words `0x02020084` and `0x02020088` changed
+from their pre-call values to `0x384` and `0x39c`; security status
+`0x10001000` remained one. Parsed size and checksum remained `0x3000` and
+`0xb82c55e7`, and every post-receive checkpoint reported Secure EL3. The
+saved 480-byte capture at `/tmp/exynos9825_epbl_postload_staged_probe.bin`
+has SHA-256
+`070e973bb646e79a4e08d8bef7f3fb1be7273e9b32e85c19cf2401e06a42e6de`.
+This completes the last isolated stock setup call before EPBL entry.
 
 ```sh
 cd /home/chanz22/Documents/GitHub/exynos9825-payloads

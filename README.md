@@ -57,7 +57,7 @@ shown above.
 | `epbl_header_noic_probe` | Repeats the matched Binary 9 header-parser probe without the blocking EL3 I-cache operation | Hardware tested on SM-N975F. Relocation and EP2 rearm passed; USB disconnected during the EPBL host write. |
 | `epbl_header_staged_probe` | Separates exact EPBL reception and hash verification from the matched BootROM header-parser call | Hardware tested on SM-N975F. Exact reception and the stock header parser passed. |
 | `epbl_verify_staged_probe` | Runs the matched stock BootROM verifier only after separate receive, hash, and parser checkpoints | Hardware tested on SM-N975F. Exact reception, parsing, and the stock CryptoCell verification branch passed. |
-| `epbl_postload_staged_probe` | Runs the stock EUB post-load setup after authenticated EPBL checkpoints without entering EPBL | Host validated. Hardware validation pending. |
+| `epbl_postload_staged_probe` | Runs the stock EUB post-load setup after authenticated EPBL checkpoints without entering EPBL | Hardware tested on SM-N975F. All five checkpoints and the stock post-load setup passed. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
@@ -579,7 +579,14 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
 ```
 
 Full PASS requires `EPLRDY!!`, `EPLHASH!`, `EPLPARSE`, `EPLVERFY`, and
-`EPLPASS!` in that order. Hardware validation is pending at this boundary.
+`EPLPASS!` in that order. The 2026-10-04 hardware run completed this sequence.
+Routine `0x5b58(1)` returned one, security information at `0x0202007c`
+changed from zero to `0x10003004`, and timing words `0x02020084` and
+`0x02020088` became `0x384` and `0x39c`. Security status `0x10001000`
+remained one, parsed size and checksum remained `0x3000` and `0xb82c55e7`,
+and the terminal record reported Secure EL3 (`CurrentEL = 0xc`). The saved
+480-byte capture at `/tmp/exynos9825_epbl_postload_staged_probe.bin` has
+SHA-256 `070e973bb646e79a4e08d8bef7f3fb1be7273e9b32e85c19cf2401e06a42e6de`.
 
 ### Same-session USB receive probe
 
