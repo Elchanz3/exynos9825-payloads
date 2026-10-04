@@ -54,6 +54,7 @@ shown above.
 | `epbl_state_probe` | Captures the complete iRAM state window consumed by the Binary 9 EPBL without calling its pointers | Hardware tested on SM-N975F. All four state records were received. |
 | `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Hardware tested on SM-N975F. No `EPHRDY!!` record returned, so execution stopped before the receive checkpoint. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
+| `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Built and statically verified. Hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -279,6 +280,26 @@ Hardware validation on 2026-10-03 returned `RELCPY!!` with source
 SHA-256 `1cece05adacd278a9984932c19ddc2dc6b388f5c1c1c685d2bc9972f219ac426`.
 This confirms the full data copy but does not distinguish an instruction-fetch
 failure from a stalled second USB send in the relocated worker.
+
+`relocation_fetch_probe` removes the second USB sender from the relocated
+path. It installs a private EL3 vector, copies an eight-byte stub to
+`0x02025000`, and branches to it. The stub writes a fixed signature into the
+result record and returns to the original Houston-linked code through an
+address held in a register. Only the original code sends the final record.
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/relocation_fetch_probe.bin \
+    --output /tmp/exynos9825_relocation_fetch_probe.bin \
+    --debug
+```
+
+`RFXPASS!` proves both instructions were fetched and the return completed.
+`RFXFAIL!` with status `0x100` reports an EL3 exception together with
+`ESR_EL3`, `FAR_EL3`, `ELR_EL3`, and `SPSR_EL3`. Status `0x101` reports a copy
+mismatch, and `0x102` reports that control returned without the expected
+signature. This diagnostic does not receive or execute a Samsung boot stage.
 
 ### Same-session USB receive probe
 

@@ -800,6 +800,24 @@ The copy itself is therefore confirmed. The remaining result does not yet
 separate an abort on the first relocated instruction fetch from a second USB
 transfer that failed after relocated execution began.
 
+`relocation_fetch_probe` separates those outcomes without introducing another
+boot-stage operation. It installs a private EL3 vector table, copies only an
+eight-byte stub to `0x02025000`, verifies that qword, invalidates the EL3
+instruction cache, and branches to the copy. The relocated stub contains only
+a store through a preloaded register and a branch through another preloaded
+register. It marks the original result record and returns to the
+Houston-linked code, which restores the original `VBAR_EL3` and performs the
+only USB transfer.
+
+A returned `RFXPASS!` record therefore proves Secure EL3 instruction fetch at
+`0x02025000` independently of relocated USB code. Any synchronous exception
+handled by the private vector returns `RFXFAIL!` with status `0x100` and the
+captured `ESR_EL3`, `FAR_EL3`, `ELR_EL3`, and `SPSR_EL3`. Status `0x101`
+identifies a copy mismatch, while status `0x102` identifies a return without
+the expected target signature. No Samsung stage, BootROM parser, receive
+helper, security-controller register, or persistent storage is accessed by
+this probe. Hardware validation is pending.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
