@@ -11,7 +11,7 @@ PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
 	usb_out_state_probe usb_out_cancel_probe usb_receive_rearmed_probe \
 	epbl_receive_probe epbl_state_probe epbl_header_probe relocation_probe \
 	relocation_fetch_probe relocation_fetch_control_probe \
-	icache_maintenance_probe
+	icache_maintenance_probe icache_target_probe
 
 CPPFLAGS := -Iinclude
 ASFLAGS  := -ffreestanding -fno-pic -fno-pie -march=armv8-a
@@ -42,7 +42,8 @@ DISASMS    := $(PAYLOADS:%=$(BUILD_DIR)/%.disasm)
 	$(BUILD_DIR)/payloads/relocation_probe.o \
 	$(BUILD_DIR)/payloads/relocation_fetch_probe.o \
 	$(BUILD_DIR)/payloads/relocation_fetch_control_probe.o \
-	$(BUILD_DIR)/payloads/icache_maintenance_probe.o $(COMMON_OBJ)
+	$(BUILD_DIR)/payloads/icache_maintenance_probe.o \
+	$(BUILD_DIR)/payloads/icache_target_probe.o $(COMMON_OBJ)
 
 .PHONY: all clean disasm verify
 
@@ -160,6 +161,11 @@ $(BUILD_DIR)/relocation_fetch_control_probe.elf: \
 
 $(BUILD_DIR)/icache_maintenance_probe.elf: \
 	$(BUILD_DIR)/payloads/icache_maintenance_probe.o \
+	$(COMMON_OBJ) arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/icache_target_probe.elf: \
+	$(BUILD_DIR)/payloads/icache_target_probe.o \
 	$(COMMON_OBJ) arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 

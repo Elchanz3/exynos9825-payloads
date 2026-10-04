@@ -40,6 +40,9 @@ RELOCATION_FETCH_CONTROL_FAIL_MAGIC = b"RFCFAIL!"
 ICACHE_PRE_MAGIC = b"ICHPRE!!"
 ICACHE_PASS_MAGIC = b"ICHPASS!"
 ICACHE_FAIL_MAGIC = b"ICHFAIL!"
+ICACHE_TARGET_PRE_MAGIC = b"ICTPRE!!"
+ICACHE_TARGET_PASS_MAGIC = b"ICTPASS!"
+ICACHE_TARGET_FAIL_MAGIC = b"ICTFAIL!"
 EPBL_STATE_MAGICS = {
     b"EPS0IRAM": 0x02020000,
     b"EPS1IRAM": 0x02020050,
@@ -191,6 +194,19 @@ ICACHE_FIELDS = (
     "after signature",
 )
 
+ICACHE_TARGET_FIELDS = (
+    "status",
+    "ESR_EL3",
+    "FAR_EL3",
+    "ELR_EL3",
+    "SPSR_EL3",
+    "original VBAR_EL3",
+    "CurrentEL",
+    "SCTLR_EL3",
+    "target address",
+    "after signature",
+)
+
 
 def decode_record(data: bytes):
     if len(data) != RECORD_SIZE:
@@ -248,6 +264,12 @@ def decode_record(data: bytes):
         fields = RELOCATION_FETCH_FIELDS
     elif magic in (ICACHE_PRE_MAGIC, ICACHE_PASS_MAGIC, ICACHE_FAIL_MAGIC):
         fields = ICACHE_FIELDS
+    elif magic in (
+        ICACHE_TARGET_PRE_MAGIC,
+        ICACHE_TARGET_PASS_MAGIC,
+        ICACHE_TARGET_FAIL_MAGIC,
+    ):
+        fields = ICACHE_TARGET_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
 
@@ -340,6 +362,27 @@ def decode_record(data: bytes):
         )
         print(f"ESR exception class  = 0x{ec:02x}")
         print(f"I-cache maintenance  = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic == ICACHE_TARGET_PRE_MAGIC:
+        print("checkpoint            = before targeted I-cache invalidation")
+        return None
+
+    if magic in (ICACHE_TARGET_PASS_MAGIC, ICACHE_TARGET_FAIL_MAGIC):
+        ec = (values[1] >> 26) & 0x3F
+        passed = (
+            magic == ICACHE_TARGET_PASS_MAGIC
+            and values[0] == 1
+            and values[1] == 0
+            and values[2] == 0
+            and values[3] == 0
+            and values[4] == 0
+            and values[6] == 0xC
+            and values[8] == 0x02024000
+            and values[9] == 0x21454E4F44544349
+        )
+        print(f"ESR exception class  = 0x{ec:02x}")
+        print(f"targeted I-cache     = {'PASS' if passed else 'FAIL'}")
         return passed
 
     if magic in (
@@ -518,6 +561,8 @@ def read_probe_records(device, usb_core) -> bytes:
             RELOCATION_FETCH_CONTROL_FAIL_MAGIC,
             ICACHE_PASS_MAGIC,
             ICACHE_FAIL_MAGIC,
+            ICACHE_TARGET_PASS_MAGIC,
+            ICACHE_TARGET_FAIL_MAGIC,
             b"EPS3IRAM",
         ):
             break

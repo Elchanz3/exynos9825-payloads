@@ -57,6 +57,7 @@ shown above.
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
 | `icache_maintenance_probe` | Isolates the EL3 instruction-cache invalidation sequence without relocating code | Hardware tested on SM-N975F. Only the pre-invalidation checkpoint returned. |
+| `icache_target_probe` | Invalidates only the candidate target line with `ic ivau` while execution remains in the Houston image | Built and statically verified. Hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -360,6 +361,26 @@ This result shows that global instruction-cache invalidation does not return to
 the reporting path used by this probe. It does not distinguish a stop in
 `ic iallu` from failure to refill the next instruction, and it does not prove
 that either relocation target is non-executable.
+
+`icache_target_probe` narrows the next test to one cache line. It sends
+`ICTPRE!!`, executes `dsb sy`, `ic ivau` for `0x02024000`, `dsb sy`, and
+`isb`, then sends `ICTPASS!`. Its private EL3 vector reports `ICTFAIL!` with
+the architectural exception state. The probe does not copy or execute code at
+the target. Since the measured `SCTLR_EL3.C` bit is clear, this isolated test
+does not add a data-cache clean operation.
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/icache_target_probe.bin \
+    --output /tmp/exynos9825_icache_target_probe.bin \
+    --debug
+```
+
+`ICTPRE!!` followed by `ICTPASS!` confirms that targeted invalidation returns
+to the current EL3 image. `ICTFAIL!` reports a synchronous exception. Receiving
+only `ICTPRE!!` means the targeted maintenance path did not reach the terminal
+report.
 
 ### Same-session USB receive probe
 

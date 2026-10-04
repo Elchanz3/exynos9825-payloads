@@ -861,6 +861,14 @@ Therefore the global invalidation path stops in `dsb sy; ic iallu; dsb sy;
 isb` or at the first instruction refill after that sequence. This result does
 not establish an execute restriction at `0x02024000` or `0x02025000`.
 
+The next diagnostic, `icache_target_probe`, keeps execution in the linked
+Houston image and invalidates only the cache line containing `0x02024000` with
+`ic ivau`. It reports `ICTPRE!!` before the operation and `ICTPASS!` after it;
+its private EL3 vector reports `ICTFAIL!`. The probe does not copy to or branch
+to the target address. The measured `SCTLR_EL3 = 0x00c51838` has the data-cache
+enable bit clear, so this isolated test deliberately omits `dc cvau`. Hardware
+validation is pending.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
