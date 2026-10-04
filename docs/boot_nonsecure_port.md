@@ -892,10 +892,10 @@ fetch and return without explicit instruction-cache maintenance in this state.
 The earlier relocation probes cannot be used as evidence of an execute
 restriction because their shared `ic` operation was the blocking boundary.
 
-The next hardware boundary is `epbl_header_noic_probe`, a separate build of
-the header-parser diagnostic that preserves the original failed artifact. It
-copies the self-contained worker to `0x02025000` and branches there without
-executing `ic`. The worker emits `EPNREL!!` immediately after relocated entry,
+`epbl_header_noic_probe` is a separate build of the header-parser diagnostic
+that preserves the original failed artifact. It copies the self-contained
+worker to `0x02025000` and branches there without executing `ic`. The worker
+emits `EPNREL!!` immediately after relocated entry,
 then performs the hardware-confirmed USB event repair, stale OUT cancellation,
 and EP2 rearm sequence. It emits `EPNRDY!!` before the host sends the exact
 Binary 9 EPBL to `0x02022000`. After reception, `EPNPASS!` requires raw FNV-1a
@@ -907,7 +907,36 @@ execute EPBL, access guessed MMIO, or write persistent storage.
 The expected record order is `EPNREL!!`, `EPNRDY!!`, and `EPNPASS!`. A stop
 after the first record isolates the USB setup path after successful execution
 at `0x02025000`. A stop after the second record isolates reception, raw-image
-verification, or parsing. Hardware validation is pending.
+verification, or parsing.
+
+The 2026-10-03 hardware run returned `EPNREL!!` followed by `EPNRDY!!`, proving
+relocated Secure EL3 execution and the complete EP2 repair and rearm path. The
+device then disconnected during the host EP2 OUT write. Libusb returned
+`[Errno 19] No such device` before reporting a completed write. This does not
+establish how much of the frame reached the controller: the host can observe a
+disconnect after some or all bytes were transferred but before the blocking
+write returns. The old runner discarded the two records because the exception
+occurred before its output write.
+
+The next hardware boundary is `epbl_header_staged_probe`. It preserves the
+same no-cache relocation, destination, receive size, pinned EPBL hash, and
+BootROM parser, but it omits the extra EP1 marker before event repair. It emits
+`EHSRDY!!` only after the EP2 OUT transfer is armed. Once reception completes
+and raw FNV-1a matches `0xfdfb55e38228e523`, it emits `EHSHASH!` and waits for
+the host to consume that record before calling parser `0x17c54`. A final
+`EHSPASS!` requires parser return one, size `0x3000`, checksum `0xb82c55e7`,
+and first qword `0x18`; `EHSFAIL!` reports the existing bounded failure status.
+The host runner now saves complete checkpoints received before a later USB
+read or write disconnect. The locally validated 1016-byte staged artifact has
+SHA-256
+`907f34b8292c8903d667e2c043d4c573abe7b62911d2451a8f555d0fffd3a3e5`.
+
+The expected full record order is `EHSRDY!!`, `EHSHASH!`, and `EHSPASS!`.
+Stopping at `EHSRDY!!` bounds the failure to reception or transfer completion.
+Stopping at `EHSHASH!` proves exact EPBL reception and bounds the failure to
+the parser call or terminal report. The probe does not execute EPBL, call the
+following verification routine, access guessed MMIO, or write persistent
+storage.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO

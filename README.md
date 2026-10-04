@@ -53,7 +53,8 @@ shown above.
 | `epbl_receive_probe` | Receives and verifies the current Binary 9 EPBL in a bounded iRAM diagnostic area without executing it | Hardware tested on SM-N975F. The complete `0x3000`-byte EPBL returned `EPBPASS!`. |
 | `epbl_state_probe` | Captures the complete iRAM state window consumed by the Binary 9 EPBL without calling its pointers | Hardware tested on SM-N975F. All four state records were received. |
 | `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Hardware tested on SM-N975F. No `EPHRDY!!` record returned, so execution stopped before the receive checkpoint. |
-| `epbl_header_noic_probe` | Repeats the matched Binary 9 header-parser probe without the blocking EL3 I-cache operation | Built and locally validated. Hardware validation is pending. |
+| `epbl_header_noic_probe` | Repeats the matched Binary 9 header-parser probe without the blocking EL3 I-cache operation | Hardware tested on SM-N975F. Relocation and EP2 rearm passed; USB disconnected during the EPBL host write. |
+| `epbl_header_staged_probe` | Separates exact EPBL reception and hash verification from the matched BootROM header-parser call | Built and locally validated. Hardware validation is pending. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
@@ -450,6 +451,43 @@ to the USB repair or ready-report path. `EPNREL!!` plus `EPNRDY!!` confirms the
 receive setup and bounds a later stop to transfer completion, raw verification,
 or header parsing. No record means that the new target fetch did not reach the
 first relocated checkpoint.
+
+The hardware run on 2026-10-03 returned `EPNREL!!` and `EPNRDY!!`. The device
+then disconnected while the host's EP2 OUT write was in progress, and libusb
+reported `[Errno 19] No such device` before the runner printed the completed
+write. This confirms relocation, USB event repair, stale transfer cancellation,
+and EP2 rearm. It does not distinguish a partial transfer from a complete
+transfer followed by a reset because a USB disconnect can be reported before
+the host call returns. The runner used for that test aborted before writing the
+two records to the requested output file.
+
+`epbl_header_staged_probe` removes the extra marker before USB event repair and
+adds a checkpoint between raw-image verification and header parsing. It sends
+`EHSRDY!!` after EP2 rearm. After receiving the pinned Binary 9 EPBL and matching
+FNV-1a `0xfdfb55e38228e523`, it sends `EHSHASH!` and waits for the host to
+consume that record before calling the BootROM parser at `0x17c54`. It then
+sends `EHSPASS!` or `EHSFAIL!`. The runner now preserves every complete record
+already received if the device disconnects during a later USB read or write.
+The locally validated 1016-byte artifact has SHA-256
+`907f34b8292c8903d667e2c043d4c573abe7b62911d2451a8f555d0fffd3a3e5`.
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_header_staged_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_header_staged_probe.bin \
+    --debug
+```
+
+Full PASS requires `EHSRDY!!`, `EHSHASH!`, and `EHSPASS!`. A capture ending at
+`EHSRDY!!` isolates the stop to the EPBL transfer or its completion path. A
+capture ending at `EHSHASH!` proves that the exact `0x3000` bytes arrived and
+isolates the subsequent stop to the parser call or terminal report. Failure
+status `0x100` reports receive completion, `0x101` the raw hash, `0x102` the
+parser return, `0x103` the parsed state, `0x200` ENDTRANSFER, and `0x201` TRB
+clearing. The probe does not execute EPBL or write persistent storage.
 
 ### Same-session USB receive probe
 

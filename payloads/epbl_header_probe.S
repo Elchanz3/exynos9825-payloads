@@ -8,7 +8,13 @@
 #define PROBE_EPBL_DESTINATION         0x02022000
 #define PROBE_EPBL_SIZE                0x3000
 
-#ifdef EPBL_HEADER_NOIC
+#ifdef EPBL_HEADER_STAGED
+#define PROBE_INIT_MAGIC               "EHSINIT!"
+#define PROBE_READY_MAGIC              0x2121594452534845
+#define PROBE_HASH_MAGIC               0x2148534148534845
+#define PROBE_PASS_MAGIC               0x2153534150534845
+#define PROBE_FAIL_MAGIC               0x214c494146534845
+#elif defined(EPBL_HEADER_NOIC)
 #define PROBE_INIT_MAGIC               "EPNINIT!"
 #define PROBE_RELOCATED_MAGIC          0x21214c45524e5045
 #define PROBE_READY_MAGIC              0x21215944524e5045
@@ -54,7 +60,7 @@ payload_main:
     cmp     x9, x10
     b.lo    1b
 
-#ifndef EPBL_HEADER_NOIC
+#if !defined(EPBL_HEADER_NOIC) && !defined(EPBL_HEADER_STAGED)
     /* Preserve the original diagnostic for comparison with its hardware run. */
     dsb     sy
     ic      iallu
@@ -185,6 +191,17 @@ relocated_entry:
     ldr     x24, =PROBE_EPBL_FNV1A64
     cmp     x23, x24
     b.ne    hash_failed
+
+#ifdef EPBL_HEADER_STAGED
+    mrs     x25, CurrentEL
+    str     x25, [x19, #0x58]
+    ldr     x25, =PROBE_HASH_MAGIC
+    str     x25, [x19]
+    str     xzr, [x19, #0x10]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+#endif
 
     /* Use the matched BootROM routine that parses the BL1 block header. */
     ldr     x16, =PROBE_PARSE_BL1_HEADER
