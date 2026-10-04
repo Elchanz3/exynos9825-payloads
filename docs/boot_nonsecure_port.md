@@ -1070,21 +1070,25 @@ the instruction at `0x02022018` is the expected `0x580002d4`. It preserves the
 authentic first entry instruction and temporarily replaces only the second
 instruction with a direct branch to the reporter in the relocated worker.
 
-The `EPEPOST!` record proves that the patch reads back as a branch to
-`0x02025480`, timing state `0x0202008c` is nonzero, volatile boot flag
-`0x00800000` is present in `0x02020070`, and execution remains at Secure EL3.
-Only after the host consumes this record does the probe call the exact stock
-branch helper at `0x1c9a0`. `EPEPASS!` is reachable only after that helper
-loads `0x02022010` and the CPU fetches and follows the authentic first EPBL
+The two initial hardware attempts reached `EPERDY!!`, then the fixed
+6.5-second EUB connection window closed during the EPBL host write. The final
+probe therefore omits the intermediate stage records already proven by the
+header, verifier, and post-load probes. It validates the same chain without
+the extra USB round trips and calls the exact stock branch helper at `0x1c9a0`
+immediately. `EPEPASS!` records the patch as a branch to `0x020252c4`, a
+nonzero timing state at `0x0202008c`, volatile boot flag `0x00800000` in
+`0x02020070`, and Secure EL3. It is reachable only after the helper loads
+`0x02022010` and the CPU fetches and follows the authentic first EPBL
 instruction. This probe does not run later EPBL initialization and makes no
 persistent write.
 
-The host-built 1968-byte artifact has SHA-256
-`dbca9e730f25757d0ff3165e265bb0a944a5266a670fb636891932d50daa6f31`.
-The expected record sequence is `EPERDY!!`, `EPEHASH!`, `EPEPARSE`,
-`EPEVERFY`, `EPEPOST!`, and `EPEPASS!`. `EPEFFAIL` with status `0x106`
-identifies an unexpected entry instruction, a missing final boot flag, or a
-return from the stock branch helper.
+The host-built 1440-byte artifact has SHA-256
+`436b529d175909678927baaff1f6523b2adeacdf830888f158e3fcf14e229bfe`.
+The expected record sequence is `EPERDY!!` followed directly by `EPEPASS!`.
+`EPEFAIL!`, `EPEVFAIL`, and `EPEPFAIL` identify failures in receive or hash,
+verification, and post-load setup. `EPEFFAIL` with status `0x106` identifies
+an unexpected entry instruction, a missing final boot flag, or a return from
+the stock branch helper.
 
 ```sh
 cd /home/chanz22/Documents/GitHub/exynos9825-payloads
@@ -1095,8 +1099,7 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
     --payload build/epbl_entry_staged_probe.bin \
     --receive-test \
     --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
-    --output /tmp/exynos9825_epbl_entry_staged_probe.bin \
-    --debug
+    --output /tmp/exynos9825_epbl_entry_staged_probe.bin
 ```
 
 The following reference features are intentionally excluded unless later

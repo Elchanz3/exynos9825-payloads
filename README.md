@@ -598,15 +598,17 @@ unchanged.
 
 Before entering, the probe verifies that the original instruction at
 `0x02022018` is `0x580002d4` and temporarily replaces only that instruction
-with a direct branch to its relocated reporter. `EPEPOST!` records both
-original instructions, the read-back branch, the timing word, the boot flags,
-and `CurrentEL`. After the host consumes that record, the probe calls the
-stock branch helper. `EPEPASS!` can be emitted only after the CPU fetches and
-follows the authentic entry instruction. The probe does not execute later
+with a direct branch to its relocated reporter. To fit the measured 6.5-second
+EUB connection window, this final probe omits the intermediate hash, parser,
+verifier, and post-load records whose stages passed independently. It calls
+the stock branch helper immediately after validating the chain. `EPEPASS!`
+records both original instructions, the read-back branch, the timing word,
+the boot flags, and `CurrentEL`; it can be emitted only after the CPU fetches
+and follows the authentic entry instruction. The probe does not execute later
 EPBL initialization and makes no persistent write.
 
-The locally validated 1968-byte artifact has SHA-256
-`dbca9e730f25757d0ff3165e265bb0a944a5266a670fb636891932d50daa6f31`.
+The locally validated 1440-byte artifact has SHA-256
+`436b529d175909678927baaff1f6523b2adeacdf830888f158e3fcf14e229bfe`.
 
 ```sh
 cd /home/chanz22/Documents/GitHub/exynos9825-payloads
@@ -617,14 +619,14 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
     --payload build/epbl_entry_staged_probe.bin \
     --receive-test \
     --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
-    --output /tmp/exynos9825_epbl_entry_staged_probe.bin \
-    --debug
+    --output /tmp/exynos9825_epbl_entry_staged_probe.bin
 ```
 
-Full PASS requires `EPERDY!!`, `EPEHASH!`, `EPEPARSE`, `EPEVERFY`,
-`EPEPOST!`, and `EPEPASS!` in that order. `EPEFFAIL` with status `0x106`
-identifies an unexpected original entry instruction, a missing boot flag, or
-a return from the stock branch helper.
+Full PASS requires `EPERDY!!` followed directly by `EPEPASS!`. `EPEFAIL!`,
+`EPEVFAIL`, and `EPEPFAIL` identify failures in receive or hash, verification,
+and post-load setup. `EPEFFAIL` with status `0x106` identifies an unexpected
+original entry instruction, a missing boot flag, or a return from the stock
+branch helper.
 
 ### Same-session USB receive probe
 

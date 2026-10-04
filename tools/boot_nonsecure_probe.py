@@ -806,7 +806,7 @@ def decode_record(data: bytes):
         branch_target = (values[3] + branch_immediate * 4) & 0xFFFFFFFFFFFFFFFF
         patched_branch = (
             (values[6] & 0xFC000000) == 0x14000000
-            and branch_target == 0x02025480
+            and branch_target == 0x020252C4
         )
         checkpoint_passed = (
             values[0] == 0
@@ -1147,7 +1147,11 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_POSTLOAD_STAGED_HASH_MAGIC,
         EPBL_POSTLOAD_STAGED_FAIL_MAGIC,
         EPBL_ENTRY_STAGED_HASH_MAGIC,
+        EPBL_ENTRY_STAGED_PASS_MAGIC,
         EPBL_ENTRY_STAGED_FAIL_MAGIC,
+        EPBL_ENTRY_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_ENTRY_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_ENTRY_STAGED_FINALIZE_FAIL_MAGIC,
     ):
         raise RuntimeError(f"unexpected receive result {result[:8]!r}")
     records.append(result)

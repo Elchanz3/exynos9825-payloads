@@ -248,7 +248,8 @@ relocated_entry:
     cmp     x23, x24
     b.ne    hash_failed
 
-#if defined(EPBL_HEADER_STAGED) || defined(EPBL_VERIFY_PATH)
+#if defined(EPBL_HEADER_STAGED) || \
+    (defined(EPBL_VERIFY_PATH) && !defined(EPBL_ENTRY_STAGED))
     mrs     x25, CurrentEL
     str     x25, [x19, #0x58]
     ldr     x25, =PROBE_HASH_MAGIC
@@ -262,20 +263,26 @@ relocated_entry:
     /* Use the matched BootROM routine that parses the BL1 block header. */
     ldr     x16, =PROBE_PARSE_BL1_HEADER
     blr     x16
+#ifndef EPBL_ENTRY_STAGED
     str     x0, [x19, #0x38]
+#endif
     cmp     w0, #1
     b.ne    parser_failed
 
     ldr     x21, =0x02020030
     ldr     w22, [x21]
     ldr     w23, [x21, #4]
+#ifndef EPBL_ENTRY_STAGED
     str     x22, [x19, #0x40]
     str     x23, [x19, #0x48]
+#endif
     ldr     x24, =PROBE_EPBL_DESTINATION
     ldr     x25, [x24]
+#ifndef EPBL_ENTRY_STAGED
     str     x25, [x19, #0x50]
     mrs     x25, CurrentEL
     str     x25, [x19, #0x58]
+#endif
 
     cmp     w22, #PROBE_EPBL_SIZE
     b.ne    parsed_state_failed
@@ -283,11 +290,14 @@ relocated_entry:
     cmp     w23, w24
     b.ne    parsed_state_failed
     ldr     x24, =0x0000000000000018
+#ifndef EPBL_ENTRY_STAGED
     ldr     x25, [x19, #0x50]
+#endif
     cmp     x25, x24
     b.ne    parsed_state_failed
 
 #ifdef EPBL_VERIFY_PATH
+#ifndef EPBL_ENTRY_STAGED
     /* Bound the next hardware step after the matched parser has passed. */
     ldr     x20, =PROBE_PARSED_MAGIC
     str     x20, [x19]
@@ -295,22 +305,28 @@ relocated_entry:
     mov     x0, x19
     mov     w1, #PROBE_RECORD_SIZE
     bl      probe_usb_send_wait
+#endif
 
     /* Snapshot the branch selector and volatile BootROM verification state. */
+#ifndef EPBL_ENTRY_STAGED
     ldr     x20, =PROBE_SECURITY_STATUS
     ldr     w21, [x20]
+#endif
     ldr     x16, =PROBE_VERIFY_SELECTOR
     blr     x16
+#ifndef EPBL_ENTRY_STAGED
     mov     w22, w0
     ldr     x20, =PROBE_BOOT_STATE
     ldr     w23, [x20]
     ldr     x20, =PROBE_VERIFY_STATUS
     ldr     x24, [x20]
+#endif
 
     ldr     x16, =PROBE_VERIFY_BL1
     blr     x16
     mov     w25, w0
 
+#ifndef EPBL_ENTRY_STAGED
     adr     x19, probe_record
     ldr     x20, =PROBE_VERIFY_STATUS
     ldr     x26, [x20]
@@ -328,11 +344,13 @@ relocated_entry:
     str     x27, [x19, #0x48]
     str     x0, [x19, #0x50]
     str     x28, [x19, #0x58]
+#endif
 
     cmp     w25, #1
     b.ne    verifier_failed
 
 #ifdef EPBL_POSTLOAD_PATH
+#ifndef EPBL_ENTRY_STAGED
     /* Snapshot the exact stock boundary before its post-load setup routine. */
     ldr     x20, =PROBE_VERIFIED_MAGIC
     str     x20, [x19]
@@ -361,6 +379,7 @@ relocated_entry:
     mov     x0, x19
     mov     w1, #PROBE_RECORD_SIZE
     bl      probe_usb_send_wait
+#endif
 
     /* Match the EUB main path: the mode selector passed one to 0x5b58. */
     mov     w0, #1
@@ -368,6 +387,7 @@ relocated_entry:
     blr     x16
     mov     w25, w0
 
+#ifndef EPBL_ENTRY_STAGED
     adr     x19, probe_record
     str     x25, [x19, #0x18]
     ldr     x20, =PROBE_POSTLOAD_STATE
@@ -389,6 +409,11 @@ relocated_entry:
     str     x27, [x19, #0x50]
     mrs     x28, CurrentEL
     str     x28, [x19, #0x58]
+#else
+    ldr     x20, =0x02020030
+    ldr     w26, [x20]
+    ldr     w27, [x20, #4]
+#endif
 
     cmp     w25, #1
     b.ne    postload_failed
@@ -431,33 +456,10 @@ relocated_entry:
     isb
     ldr     w24, [x22]
 
-    adr     x19, probe_record
-    ldr     x20, =PROBE_POSTLOAD_MAGIC
-    str     x20, [x19]
-    str     xzr, [x19, #0x10]
-    ldr     x20, =PROBE_EPBL_ENTRY
-    str     x20, [x19, #0x20]
-    ldr     x20, =PROBE_EPBL_HOOK_SITE
-    str     x20, [x19, #0x28]
-    ldr     w20, =PROBE_EPBL_ENTRY_INSN
-    str     x20, [x19, #0x30]
-    ldr     w20, =PROBE_EPBL_HOOK_INSN
-    str     x20, [x19, #0x38]
-    str     x24, [x19, #0x40]
-    ldr     x20, =PROBE_ENTRY_TIMING_WORD
-    ldr     w21, [x20]
-    str     x21, [x19, #0x48]
     ldr     x20, =PROBE_BOOT_FLAGS
     ldr     w22, [x20]
-    str     x22, [x19, #0x50]
-    mrs     x23, CurrentEL
-    str     x23, [x19, #0x58]
     tst     w22, #PROBE_ENTRY_FLAG
     b.eq    finalize_failed
-
-    mov     x0, x19
-    mov     w1, #PROBE_RECORD_SIZE
-    bl      probe_usb_send_wait
 
     /* Enter through the exact stock indirect branch helper at 0x1c9a0. */
     ldr     x16, =PROBE_EPBL_BRANCH
