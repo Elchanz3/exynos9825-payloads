@@ -23,6 +23,21 @@
 #define PROBE_VERIFY_FAIL_MAGIC        0x4c49414656455045
 #define PROBE_POSTLOAD_FAIL_MAGIC      0x4c49414650455045
 #define PROBE_FINALIZE_FAIL_MAGIC      0x4c49414646455045
+#elif defined(EPBL_MMIO_STAGED)
+#define EPBL_ENTRY_PATH
+#define EPBL_VERIFY_PATH
+#define EPBL_POSTLOAD_PATH
+#define PROBE_INIT_MAGIC               "EPMINIT!"
+#define PROBE_READY_MAGIC              0x21215944524d5045
+#define PROBE_HASH_MAGIC               0x21485341484d5045
+#define PROBE_PARSED_MAGIC             0x45535241504d5045
+#define PROBE_VERIFIED_MAGIC           0x59465245564d5045
+#define PROBE_POSTLOAD_MAGIC           0x2154534f504d5045
+#define PROBE_PASS_MAGIC               0x21535341504d5045
+#define PROBE_FAIL_MAGIC               0x214c4941464d5045
+#define PROBE_VERIFY_FAIL_MAGIC        0x4c494146564d5045
+#define PROBE_POSTLOAD_FAIL_MAGIC      0x4c494146504d5045
+#define PROBE_FINALIZE_FAIL_MAGIC      0x4c494146464d5045
 #elif defined(EPBL_DISPATCH_STAGED)
 #define EPBL_ENTRY_PATH
 #define EPBL_VERIFY_PATH
@@ -108,6 +123,8 @@
 #define PROBE_EPBL_HOOK_SITE           0x02022018
 #define PROBE_EPBL_ENTRY_INSN          0x14000002
 #define PROBE_EPBL_HOOK_INSN           0x580002d4
+#define PROBE_EPBL_MMIO_SITE           0x02022020
+#define PROBE_EPBL_MMIO_INSN           0xd2800035
 #define PROBE_EPBL_DISPATCH_STATE      0x02020128
 #define PROBE_EPBL_DISPATCH_MMIO       0x15860990
 #define PROBE_EPBL_COLD_SITE           0x02022054
@@ -468,7 +485,21 @@ relocated_entry:
     cmp     w23, w24
     b.ne    finalize_failed
 
-#ifdef EPBL_DISPATCH_STAGED
+#ifdef EPBL_MMIO_STAGED
+    /* Stop after the authentic MMIO read and before its comparison setup. */
+    ldr     x22, =PROBE_EPBL_MMIO_SITE
+    ldr     w23, [x22]
+    ldr     w24, =PROBE_EPBL_MMIO_INSN
+    cmp     w23, w24
+    b.ne    finalize_failed
+    adr     x24, epbl_mmio_hook
+    sub     x24, x24, x22
+    asr     x24, x24, #2
+    and     w24, w24, #0x03ffffff
+    ldr     w26, =0x14000000
+    orr     w24, w24, w26
+    str     w24, [x22]
+#elif defined(EPBL_DISPATCH_STAGED)
     /* Stop at either side of the first EPBL dispatch decision. */
     ldr     x22, =PROBE_EPBL_COLD_SITE
     ldr     w23, [x22]
@@ -586,7 +617,34 @@ finalize_failed:
     b       report_result
 
 /* Reached only after the stock helper fetched the authentic EPBL entry. */
-#ifdef EPBL_DISPATCH_STAGED
+#ifdef EPBL_MMIO_STAGED
+epbl_mmio_hook:
+    mov     x27, x20
+    adr     x19, probe_record
+    ldr     x20, =PROBE_PASS_MAGIC
+    str     x20, [x19]
+    mov     x20, #1
+    str     x20, [x19, #0x10]
+    str     x25, [x19, #0x18]
+    ldr     x20, =PROBE_EPBL_ENTRY
+    str     x20, [x19, #0x20]
+    ldr     x20, =PROBE_EPBL_MMIO_SITE
+    str     x20, [x19, #0x28]
+    ldr     x20, =PROBE_EPBL_DISPATCH_MMIO
+    str     x20, [x19, #0x30]
+    str     x27, [x19, #0x38]
+    ldr     w20, =PROBE_EPBL_MMIO_INSN
+    str     x20, [x19, #0x40]
+    ldr     x20, =PROBE_EPBL_MMIO_SITE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x48]
+    ldr     x20, =PROBE_BOOT_FLAGS
+    ldr     w21, [x20]
+    str     x21, [x19, #0x50]
+    mrs     x20, CurrentEL
+    str     x20, [x19, #0x58]
+    b       report_result
+#elif defined(EPBL_DISPATCH_STAGED)
 epbl_cold_dispatch_hook:
     ldr     x27, =PROBE_EPBL_COLD_TARGET
     ldr     x28, =PROBE_EPBL_COLD_SITE
@@ -597,6 +655,7 @@ epbl_warm_dispatch_hook:
     ldr     x28, =PROBE_EPBL_WARM_SITE
 
 epbl_dispatch_hook:
+    mov     x26, x20
     adr     x19, probe_record
     ldr     x20, =PROBE_PASS_MAGIC
     str     x20, [x19]
@@ -604,9 +663,7 @@ epbl_dispatch_hook:
     str     x20, [x19, #0x10]
     str     x25, [x19, #0x18]
     str     x28, [x19, #0x20]
-    ldr     x20, =PROBE_EPBL_DISPATCH_MMIO
-    ldr     w21, [x20]
-    str     x21, [x19, #0x28]
+    str     x26, [x19, #0x28]
     ldr     x20, =PROBE_EPBL_DISPATCH_STATE
     ldr     w21, [x20]
     str     x21, [x19, #0x30]

@@ -1110,6 +1110,29 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
     --output /tmp/exynos9825_epbl_entry_staged_probe.bin
 ```
 
+`epbl_mmio_staged_probe` advances by two authentic instructions from the
+confirmed entry hook. It executes the literal load at `0x02022018` and the
+32-bit MMIO load at `0x0202201c`, then intercepts the original
+`mov x21, #1` instruction at `0x02022020`. `EPMPASS!` records the value read
+from `0x15860990` and stops before the comparison or dispatch.
+
+The locally validated 1464-byte artifact has SHA-256
+`45de73f373dcea1438d693deb03a223360dd49cffa1590fe843c3e16fbe814c2`.
+
+```sh
+cd /home/chanz22/Documents/GitHub/exynos9825-payloads
+
+sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
+    tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_mmio_staged_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_mmio_staged_probe.bin
+```
+
+The expected sequence is `EPMRDY!!` followed directly by `EPMPASS!`.
+
 `epbl_dispatch_staged_probe` advances through the authentic entry prefix and
 stops at both possible exits from its first decision. The prefix reads
 `0x15860990`. When the value differs from one, execution reaches the direct
@@ -1122,9 +1145,11 @@ The probe validates the authentic entry and both dispatch instructions before
 temporarily replacing the two exits with branches to separate relocated
 reporters. `EPDPASS!` identifies the exit actually reached and records the
 MMIO value, dispatch state, selected target, original and patched instruction,
-boot flags, and `CurrentEL`. Neither selected target is executed. The locally
-validated 1576-byte artifact has SHA-256
-`228c44b288c36a9f4fd39ef109f05e7f3cf640dca20de7384b32a733b4ccf9ac`.
+boot flags, and `CurrentEL`. The reporter preserves the value loaded into
+`w20` by the authentic EPBL and does not read the MMIO register a second time.
+Neither selected target is executed. The locally validated 1568-byte artifact
+has SHA-256
+`f11593f801bcf55f9c06af9cd2e3a8300dc853b52210a48423d6b9fe79dd6794`.
 
 ```sh
 cd /home/chanz22/Documents/GitHub/exynos9825-payloads
@@ -1141,9 +1166,11 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
 The expected sequence is `EPDRDY!!` followed directly by `EPDPASS!`. The host
 accepts and checks both the cold and warm terminal layouts.
 
-The first SM-N975F hardware run received `EPDRDY!!` and sent all `0x300a`
-framed bytes, but then received zero result bytes. The preserved 96-byte ready
-record at `/tmp/exynos9825_epbl_dispatch_staged_probe.bin` has SHA-256
+The first SM-N975F hardware run used the earlier 1576-byte artifact with
+SHA-256 `228c44b288c36a9f4fd39ef109f05e7f3cf640dca20de7384b32a733b4ccf9ac`.
+It received `EPDRDY!!` and sent all `0x300a` framed bytes, but then received
+zero result bytes. The preserved 96-byte ready record at
+`/tmp/exynos9825_epbl_dispatch_staged_probe.bin` has SHA-256
 `eb2ad348285462b26aa8a0cb1e26d648c5004b7b372f10f8036f35842db18898`.
 Because the earlier entry hook at `0x02022018` passed, the next probe should
 stop immediately after the load from `0x15860990`, before either dispatch
