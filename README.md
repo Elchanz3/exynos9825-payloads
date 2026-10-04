@@ -56,7 +56,7 @@ shown above.
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
-| `relocation_fetch_noic_probe` | Copies and branches to the two-instruction control stub at `0x02024000` without an I-cache maintenance operation | Built and statically verified. Hardware validation is pending. |
+| `relocation_fetch_noic_probe` | Copies and branches to the two-instruction control stub at `0x02024000` without an I-cache maintenance operation | Hardware tested on SM-N975F. Secure EL3 fetch and return passed. |
 | `icache_maintenance_probe` | Isolates the EL3 instruction-cache invalidation sequence without relocating code | Hardware tested on SM-N975F. Only the pre-invalidation checkpoint returned. |
 | `icache_target_probe` | Invalidates only the candidate target line with `ic ivau` while execution remains in the Houston image | Hardware tested on SM-N975F. Only the pre-invalidation checkpoint returned. |
 
@@ -411,6 +411,16 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
 `0x02024000` without I-cache maintenance. `RNCFAIL!` reports the exception.
 Receiving only `RNCPRE!!` bounds the stop to the branch, target fetch, stub, or
 return path.
+
+The hardware run on 2026-10-03 returned both `RNCPRE!!` and `RNCPASS!`. The
+terminal record confirmed target `0x02024000`, `CurrentEL = 0xc`, the expected
+eight-byte stub size, and signature `0x2143455845434e52`. The raw 192-byte
+capture has SHA-256
+`db41546a71fcdc59bb1184f466df255b7ac358b975e5541a31ea373ece10e5db`.
+This proves that freshly written iRAM at `0x02024000` is executable in Secure
+EL3 without explicit instruction-cache maintenance in the tested state. It
+also identifies the `ic` operations as the blocker in the earlier relocation
+diagnostics.
 
 ### Same-session USB receive probe
 

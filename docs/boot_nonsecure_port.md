@@ -883,7 +883,14 @@ stub writes its signature and returns to the linked image, which sends
 exception. The target has not been used as an instruction address during this
 boot session, and `SCTLR_EL3.C` is clear. The probe performs no Samsung-stage
 execution, MMIO write, or persistent-storage access. Hardware validation is
-pending.
+complete. The 2026-10-03 run returned `RNCPRE!!` followed by `RNCPASS!` with
+target `0x02024000`, `CurrentEL = 0xc`, copy size eight, and the expected
+signature `0x2143455845434e52`. The raw 192-byte capture has SHA-256
+`db41546a71fcdc59bb1184f466df255b7ac358b975e5541a31ea373ece10e5db`.
+Freshly written iRAM at that address therefore supports Secure EL3 instruction
+fetch and return without explicit instruction-cache maintenance in this state.
+The earlier relocation probes cannot be used as evidence of an execute
+restriction because their shared `ic` operation was the blocking boundary.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
