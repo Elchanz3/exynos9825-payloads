@@ -834,7 +834,15 @@ linker's existing payload window. It uses `RFCPASS!` and `RFCFAIL!` records.
 A control PASS will validate the diagnostic design and isolate the
 `0x02025000` result to the target region. A control failure will require the
 cache, branch-return, or exception-reporting method to be corrected before
-drawing a memory-attribution conclusion. Hardware validation is pending.
+drawing a memory-attribution conclusion.
+
+The hardware run on 2026-10-03 returned neither `RFCPASS!` nor `RFCFAIL!`, and
+the host wrote no raw capture. This invalidates the intended address control:
+the primary and control probes both stop before reporting. Both execute
+`ic iallu`, followed by `dsb sy` and `isb`, immediately before their indirect
+branch. That cache-maintenance sequence is now an independent unvalidated
+boundary and must be tested without relocation before assigning the stop to
+either target address.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO

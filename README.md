@@ -55,7 +55,7 @@ shown above.
 | `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Hardware tested on SM-N975F. No `EPHRDY!!` record returned, so execution stopped before the receive checkpoint. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
-| `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Built and statically verified. Hardware validation is pending. |
+| `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -328,6 +328,11 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
 store, indirect return, and original USB reporter all work at the control
 address. `RFCFAIL!` has the same exception and status layout as the primary
 fetch probe.
+
+The hardware run on 2026-10-03 also returned zero records. The host therefore
+did not create the requested output file. Because both fetch probes execute
+`ic iallu` immediately before their indirect branch, cache maintenance must be
+tested without relocation before either address result can be interpreted.
 
 ### Same-session USB receive probe
 
