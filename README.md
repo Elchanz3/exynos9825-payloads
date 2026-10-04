@@ -60,6 +60,7 @@ shown above.
 | `epbl_postload_staged_probe` | Runs the stock EUB post-load helper after authenticated EPBL checkpoints without entering EPBL | Hardware tested on SM-N975F. All five checkpoints and the stock post-load setup passed. |
 | `epbl_entry_staged_probe` | Reproduces the final stock timer and boot-flag calls, then reaches a controlled reporter through the authentic EPBL entry instruction | Hardware tested on SM-N975F. The authentic entry branch and controlled second-instruction hook passed. |
 | `epbl_mmio_staged_probe` | Executes through the first authentic EPBL MMIO load and reports before the comparison | Hardware reached `EPMRDY!!`, received the EPBL, then stopped before the post-load hook. |
+| `epbl_mmio_trap_staged_probe` | Installs a private EL3 synchronous-exception vector immediately before the first EPBL MMIO load | Locally validated; hardware test pending. |
 | `epbl_dispatch_staged_probe` | Executes the authentic EPBL entry prefix and reports which first-stage dispatch path it selects | Initial hardware run stopped after `EPDRDY!!`; the reporter was revised to preserve the authentic MMIO value and awaits retest. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
@@ -670,6 +671,35 @@ The earlier hook at `0x02022018` passed, while this hook at `0x02022020` did
 not. This bounds the stop to the authentic literal load and the following
 load from `0x15860990`; it does not by itself distinguish a synchronous abort,
 a stalled MMIO transaction, or a failure to fetch the later patched hook.
+
+`epbl_mmio_trap_staged_probe` distinguishes a synchronous EL3 data abort from
+the remaining cases. It saves `VBAR_EL3`, installs a private 0x800-aligned
+vector immediately before entering the authentic EPBL, and restores the
+original vector before every report. If the load at `0x0202201c` aborts,
+`EPTTRAP!` records `ESR_EL3`, `FAR_EL3`, `ELR_EL3`, `SPSR_EL3`, the original
+vector address, boot flags, and `CurrentEL`. The host accepts the trap as PASS
+only for exception class `0x25`, `FAR_EL3 = 0x15860990`, and
+`ELR_EL3 = 0x0202201c`. If the load completes, the existing hook returns
+`EPTPASS!` with the MMIO value. No terminal record still indicates a stalled
+transaction or loss before the exception vector or later hook can run.
+
+The locally validated 2160-byte artifact has SHA-256
+`1cc6ef49036aeeeead8890048d936270bcdd3e9a9c60264a0817dbdd9c06f7a8`.
+
+```sh
+cd /home/chanz22/Documents/GitHub/exynos9825-payloads
+
+sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
+    tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_mmio_trap_staged_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_mmio_trap_staged_probe.bin
+```
+
+Expected terminal sequences are `EPTRDY!!` followed directly by either
+`EPTTRAP!` or `EPTPASS!`.
 
 `epbl_dispatch_staged_probe` moves the controlled hook past the first EPBL
 decision. It preserves the entry prefix through the read of `0x15860990` and

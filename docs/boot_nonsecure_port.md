@@ -1142,6 +1142,42 @@ did not report, execution stopped during the authentic literal-load/MMIO-load
 pair or before the later hook became fetch-visible. The result alone does not
 distinguish an EL3 synchronous abort from a stalled MMIO transaction.
 
+`epbl_mmio_trap_staged_probe` adds a bounded exception diagnostic around that
+same authentic MMIO load. It saves the original `VBAR_EL3`, installs a private
+0x800-aligned table immediately before the stock branch helper enters EPBL,
+and handles synchronous exceptions from CurrentEL with either SP selector.
+Asynchronous exceptions remain masked. Every reporting path restores the
+original vector before using EP1 IN.
+
+An `EPTTRAP!` record contains `ESR_EL3`, `FAR_EL3`, `ELR_EL3`, `SPSR_EL3`,
+the original vector address, the expected MMIO and hook addresses, boot flags,
+and `CurrentEL`. The decoder accepts the capture only when exception class
+`0x25` identifies a data abort from CurrentEL, `FAR_EL3` is `0x15860990`, and
+`ELR_EL3` is the authentic load at `0x0202201c`. If the load succeeds,
+`EPTPASS!` uses the existing post-load hook and reports the value already in
+`w20`. Neither result executes a later EPBL dispatch target.
+
+The locally validated 2160-byte artifact has SHA-256
+`1cc6ef49036aeeeead8890048d936270bcdd3e9a9c60264a0817dbdd9c06f7a8`.
+Its copied vector resolves to `0x02025000`, the copied exception handler to
+`0x020255a4`, and the normal MMIO reporter to `0x02025500`.
+
+```sh
+cd /home/chanz22/Documents/GitHub/exynos9825-payloads
+
+sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
+    tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_mmio_trap_staged_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_mmio_trap_staged_probe.bin
+```
+
+The expected sequence is `EPTRDY!!` followed directly by `EPTTRAP!` for the
+targeted data abort or `EPTPASS!` when the read completes. A missing terminal
+record means the access stalled or execution was lost before either reporter.
+
 `epbl_dispatch_staged_probe` advances through the authentic entry prefix and
 stops at both possible exits from its first decision. The prefix reads
 `0x15860990`. When the value differs from one, execution reaches the direct

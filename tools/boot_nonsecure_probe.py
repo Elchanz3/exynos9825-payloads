@@ -68,6 +68,13 @@ EPBL_MMIO_STAGED_FAIL_MAGIC = b"EPMFAIL!"
 EPBL_MMIO_STAGED_VERIFY_FAIL_MAGIC = b"EPMVFAIL"
 EPBL_MMIO_STAGED_POSTLOAD_FAIL_MAGIC = b"EPMPFAIL"
 EPBL_MMIO_STAGED_FINALIZE_FAIL_MAGIC = b"EPMFFAIL"
+EPBL_MMIO_TRAP_STAGED_READY_MAGIC = b"EPTRDY!!"
+EPBL_MMIO_TRAP_STAGED_PASS_MAGIC = b"EPTPASS!"
+EPBL_MMIO_TRAP_STAGED_TRAP_MAGIC = b"EPTTRAP!"
+EPBL_MMIO_TRAP_STAGED_FAIL_MAGIC = b"EPTFAIL!"
+EPBL_MMIO_TRAP_STAGED_VERIFY_FAIL_MAGIC = b"EPTVFAIL"
+EPBL_MMIO_TRAP_STAGED_POSTLOAD_FAIL_MAGIC = b"EPTPFAIL"
+EPBL_MMIO_TRAP_STAGED_FINALIZE_FAIL_MAGIC = b"EPTFFAIL"
 EPBL_DISPATCH_STAGED_READY_MAGIC = b"EPDRDY!!"
 EPBL_DISPATCH_STAGED_PASS_MAGIC = b"EPDPASS!"
 EPBL_DISPATCH_STAGED_FAIL_MAGIC = b"EPDFAIL!"
@@ -254,6 +261,19 @@ EPBL_MMIO_FIELDS = (
     "CurrentEL",
 )
 
+EPBL_MMIO_TRAP_FIELDS = (
+    "status",
+    "ESR_EL3",
+    "FAR_EL3",
+    "ELR_EL3",
+    "SPSR_EL3",
+    "original VBAR_EL3",
+    "MMIO address",
+    "hook site",
+    "boot flags 0x02020070",
+    "CurrentEL",
+)
+
 EPBL_DISPATCH_FIELDS = (
     "status",
     "post-load return",
@@ -381,6 +401,8 @@ def decode_record(data: bytes):
         EPBL_ENTRY_STAGED_FAIL_MAGIC,
         EPBL_MMIO_STAGED_READY_MAGIC,
         EPBL_MMIO_STAGED_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_READY_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_FAIL_MAGIC,
         EPBL_DISPATCH_STAGED_READY_MAGIC,
         EPBL_DISPATCH_STAGED_FAIL_MAGIC,
     ):
@@ -412,11 +434,20 @@ def decode_record(data: bytes):
     elif magic in (
         EPBL_MMIO_STAGED_PASS_MAGIC,
         EPBL_MMIO_STAGED_FINALIZE_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_PASS_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_FINALIZE_FAIL_MAGIC,
     ):
         fields = EPBL_MMIO_FIELDS
+    elif magic == EPBL_MMIO_TRAP_STAGED_TRAP_MAGIC:
+        fields = EPBL_MMIO_TRAP_FIELDS
     elif magic == EPBL_MMIO_STAGED_VERIFY_FAIL_MAGIC:
         fields = EPBL_VERIFY_FIELDS
-    elif magic == EPBL_MMIO_STAGED_POSTLOAD_FAIL_MAGIC:
+    elif magic == EPBL_MMIO_TRAP_STAGED_VERIFY_FAIL_MAGIC:
+        fields = EPBL_VERIFY_FIELDS
+    elif magic in (
+        EPBL_MMIO_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_POSTLOAD_FAIL_MAGIC,
+    ):
         fields = EPBL_POSTLOAD_FIELDS
     elif magic in (
         EPBL_DISPATCH_STAGED_PASS_MAGIC,
@@ -596,6 +627,7 @@ def decode_record(data: bytes):
         EPBL_POSTLOAD_STAGED_READY_MAGIC,
         EPBL_ENTRY_STAGED_READY_MAGIC,
         EPBL_MMIO_STAGED_READY_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_READY_MAGIC,
         EPBL_DISPATCH_STAGED_READY_MAGIC,
     ):
         checkpoint = {
@@ -603,6 +635,8 @@ def decode_record(data: bytes):
                 "staged dispatch probe armed EP2 OUT at the stock EPBL destination",
             EPBL_MMIO_STAGED_READY_MAGIC:
                 "staged MMIO probe armed EP2 OUT at the stock EPBL destination",
+            EPBL_MMIO_TRAP_STAGED_READY_MAGIC:
+                "staged MMIO trap probe armed EP2 OUT at the stock EPBL destination",
             EPBL_ENTRY_STAGED_READY_MAGIC:
                 "staged entry probe armed EP2 OUT at the stock EPBL destination",
             EPBL_POSTLOAD_STAGED_READY_MAGIC:
@@ -833,6 +867,9 @@ def decode_record(data: bytes):
         EPBL_MMIO_STAGED_FAIL_MAGIC,
         EPBL_MMIO_STAGED_VERIFY_FAIL_MAGIC,
         EPBL_MMIO_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_POSTLOAD_FAIL_MAGIC,
     ):
         print("controlled MMIO read = FAIL")
         return False
@@ -914,6 +951,8 @@ def decode_record(data: bytes):
     if magic in (
         EPBL_MMIO_STAGED_PASS_MAGIC,
         EPBL_MMIO_STAGED_FINALIZE_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_PASS_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_FINALIZE_FAIL_MAGIC,
     ):
         hook_site = values[3]
         branch_immediate = values[7] & 0x03FFFFFF
@@ -921,7 +960,10 @@ def decode_record(data: bytes):
             branch_immediate -= 0x04000000
         branch_target = (hook_site + branch_immediate * 4) & 0xFFFFFFFFFFFFFFFF
         passed = (
-            magic == EPBL_MMIO_STAGED_PASS_MAGIC
+            magic in (
+                EPBL_MMIO_STAGED_PASS_MAGIC,
+                EPBL_MMIO_TRAP_STAGED_PASS_MAGIC,
+            )
             and values[0] == 1
             and values[1] == 1
             and values[2] == 0x02022010
@@ -937,6 +979,25 @@ def decode_record(data: bytes):
         print(f"dispatch MMIO value   = 0x{values[5] & 0xFFFFFFFF:08x}")
         print(f"controlled MMIO read = {'PASS' if passed else 'FAIL'}")
         return passed
+
+    if magic == EPBL_MMIO_TRAP_STAGED_TRAP_MAGIC:
+        ec = (values[1] >> 26) & 0x3F
+        trapped_at_mmio = (
+            values[0] == 0x107
+            and ec == 0x25
+            and values[2] == 0x15860990
+            and values[3] == 0x0202201C
+            and values[6] == 0x15860990
+            and values[7] == 0x02022020
+            and (values[8] & 0x00800000) != 0
+            and values[9] == 0xC
+        )
+        print(f"ESR exception class  = 0x{ec:02x}")
+        print(
+            "MMIO exception capture = "
+            f"{'PASS' if trapped_at_mmio else 'FAIL'}"
+        )
+        return trapped_at_mmio
 
     if magic in (
         EPBL_DISPATCH_STAGED_PASS_MAGIC,
@@ -1109,6 +1170,12 @@ def read_probe_records(device, usb_core) -> bytes:
             EPBL_ENTRY_STAGED_VERIFY_FAIL_MAGIC,
             EPBL_ENTRY_STAGED_POSTLOAD_FAIL_MAGIC,
             EPBL_ENTRY_STAGED_FINALIZE_FAIL_MAGIC,
+            EPBL_MMIO_TRAP_STAGED_PASS_MAGIC,
+            EPBL_MMIO_TRAP_STAGED_TRAP_MAGIC,
+            EPBL_MMIO_TRAP_STAGED_FAIL_MAGIC,
+            EPBL_MMIO_TRAP_STAGED_VERIFY_FAIL_MAGIC,
+            EPBL_MMIO_TRAP_STAGED_POSTLOAD_FAIL_MAGIC,
+            EPBL_MMIO_TRAP_STAGED_FINALIZE_FAIL_MAGIC,
             RELOCATION_PASS_MAGIC,
             RELOCATION_FAIL_MAGIC,
             RELOCATION_FETCH_PASS_MAGIC,
@@ -1196,6 +1263,7 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_POSTLOAD_STAGED_FAIL_MAGIC,
         EPBL_ENTRY_STAGED_FAIL_MAGIC,
         EPBL_MMIO_STAGED_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_FAIL_MAGIC,
         EPBL_DISPATCH_STAGED_FAIL_MAGIC,
     ):
         records.append(ready)
@@ -1212,6 +1280,7 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_POSTLOAD_STAGED_READY_MAGIC,
         EPBL_ENTRY_STAGED_READY_MAGIC,
         EPBL_MMIO_STAGED_READY_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_READY_MAGIC,
         EPBL_DISPATCH_STAGED_READY_MAGIC,
     ):
         raise RuntimeError(f"unexpected receive-probe marker {ready[:8]!r}")
@@ -1227,6 +1296,7 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_POSTLOAD_STAGED_READY_MAGIC,
         EPBL_ENTRY_STAGED_READY_MAGIC,
         EPBL_MMIO_STAGED_READY_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_READY_MAGIC,
         EPBL_DISPATCH_STAGED_READY_MAGIC,
     ):
         if receive_payload is None:
@@ -1296,6 +1366,12 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_MMIO_STAGED_VERIFY_FAIL_MAGIC,
         EPBL_MMIO_STAGED_POSTLOAD_FAIL_MAGIC,
         EPBL_MMIO_STAGED_FINALIZE_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_PASS_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_TRAP_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_MMIO_TRAP_STAGED_FINALIZE_FAIL_MAGIC,
         EPBL_DISPATCH_STAGED_PASS_MAGIC,
         EPBL_DISPATCH_STAGED_FAIL_MAGIC,
         EPBL_DISPATCH_STAGED_VERIFY_FAIL_MAGIC,

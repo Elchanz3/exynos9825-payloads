@@ -8,7 +8,23 @@
 #define PROBE_EPBL_DESTINATION         0x02022000
 #define PROBE_EPBL_SIZE                0x3000
 
-#ifdef EPBL_ENTRY_STAGED
+#ifdef EPBL_MMIO_TRAP_STAGED
+#define EPBL_ENTRY_PATH
+#define EPBL_VERIFY_PATH
+#define EPBL_POSTLOAD_PATH
+#define PROBE_INIT_MAGIC               "EPTINIT!"
+#define PROBE_READY_MAGIC              0x2121594452545045
+#define PROBE_HASH_MAGIC               0x2148534148545045
+#define PROBE_PARSED_MAGIC             0x4553524150545045
+#define PROBE_VERIFIED_MAGIC           0x5946524556545045
+#define PROBE_POSTLOAD_MAGIC           0x2154534f50545045
+#define PROBE_PASS_MAGIC               0x2153534150545045
+#define PROBE_FAIL_MAGIC               0x214c494146545045
+#define PROBE_VERIFY_FAIL_MAGIC        0x4c49414656545045
+#define PROBE_POSTLOAD_FAIL_MAGIC      0x4c49414650545045
+#define PROBE_FINALIZE_FAIL_MAGIC      0x4c49414646545045
+#define PROBE_TRAP_MAGIC               0x2150415254545045
+#elif defined(EPBL_ENTRY_STAGED)
 #define EPBL_ENTRY_PATH
 #define EPBL_VERIFY_PATH
 #define EPBL_POSTLOAD_PATH
@@ -174,6 +190,21 @@ payload_main:
 
 .balign 16
 relocated_start:
+#ifdef EPBL_MMIO_TRAP_STAGED
+.type el3_vectors, %object
+el3_vectors:
+    /* Synchronous exceptions from CurrentEL with SP0 or SPx. */
+    b       el3_exception
+    .space  0x1fc
+    b       el3_exception
+.size el3_vectors, . - el3_vectors
+
+.balign 8
+saved_vbar_el3:
+    .quad   0
+
+.balign 16
+#endif
 .type relocated_entry, %function
 relocated_entry:
     mov     x19, x0
@@ -182,6 +213,12 @@ relocated_entry:
     str     x21, [x20, #0x20]
     ldr     x21, =PROBE_EPBL_DESTINATION
     str     x21, [x20, #0x28]
+
+#ifdef EPBL_MMIO_TRAP_STAGED
+    mrs     x21, VBAR_EL3
+    adr     x22, saved_vbar_el3
+    str     x21, [x22]
+#endif
 
 #ifdef EPBL_HEADER_NOIC
     mrs     x21, CurrentEL
@@ -485,7 +522,7 @@ relocated_entry:
     cmp     w23, w24
     b.ne    finalize_failed
 
-#ifdef EPBL_MMIO_STAGED
+#if defined(EPBL_MMIO_STAGED) || defined(EPBL_MMIO_TRAP_STAGED)
     /* Stop after the authentic MMIO read and before its comparison setup. */
     ldr     x22, =PROBE_EPBL_MMIO_SITE
     ldr     w23, [x22]
@@ -546,6 +583,12 @@ relocated_entry:
     ldr     w22, [x20]
     tst     w22, #PROBE_ENTRY_FLAG
     b.eq    finalize_failed
+
+#ifdef EPBL_MMIO_TRAP_STAGED
+    adr     x20, el3_vectors
+    msr     VBAR_EL3, x20
+    isb
+#endif
 
     /* Enter through the exact stock indirect branch helper at 0x1c9a0. */
     ldr     x16, =PROBE_EPBL_BRANCH
@@ -617,7 +660,7 @@ finalize_failed:
     b       report_result
 
 /* Reached only after the stock helper fetched the authentic EPBL entry. */
-#ifdef EPBL_MMIO_STAGED
+#if defined(EPBL_MMIO_STAGED) || defined(EPBL_MMIO_TRAP_STAGED)
 epbl_mmio_hook:
     mov     x27, x20
     adr     x19, probe_record
@@ -728,6 +771,14 @@ report_failure:
     str     x20, [x19, #0x10]
 
 report_result:
+#ifdef EPBL_MMIO_TRAP_STAGED
+    /* Never leave the diagnostic vector table installed while reporting. */
+    adr     x20, saved_vbar_el3
+    ldr     x20, [x20]
+    msr     VBAR_EL3, x20
+    dsb     sy
+    isb
+#endif
     mov     x0, x19
     mov     w1, #PROBE_RECORD_SIZE
     bl      probe_usb_send_wait
@@ -735,6 +786,39 @@ report_result:
 5:
     b       5b
 .size relocated_entry, . - relocated_entry
+
+#ifdef EPBL_MMIO_TRAP_STAGED
+.type el3_exception, %function
+el3_exception:
+    adr     x19, probe_record
+    ldr     x20, =PROBE_TRAP_MAGIC
+    str     x20, [x19]
+    mov     x20, #0x107
+    str     x20, [x19, #0x10]
+    mrs     x20, ESR_EL3
+    str     x20, [x19, #0x18]
+    mrs     x20, FAR_EL3
+    str     x20, [x19, #0x20]
+    mrs     x20, ELR_EL3
+    str     x20, [x19, #0x28]
+    mrs     x20, SPSR_EL3
+    str     x20, [x19, #0x30]
+    adr     x21, saved_vbar_el3
+    ldr     x20, [x21]
+    str     x20, [x19, #0x38]
+    ldr     x21, =PROBE_EPBL_DISPATCH_MMIO
+    str     x21, [x19, #0x40]
+    ldr     x21, =PROBE_EPBL_MMIO_SITE
+    str     x21, [x19, #0x48]
+    ldr     x21, =PROBE_BOOT_FLAGS
+    ldr     w21, [x21]
+    str     x21, [x19, #0x50]
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+    b       report_result
+.size el3_exception, . - el3_exception
+
+#endif
 
 .type probe_usb_send_wait, %function
 probe_usb_send_wait:
