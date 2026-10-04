@@ -54,7 +54,7 @@ shown above.
 | `epbl_state_probe` | Captures the complete iRAM state window consumed by the Binary 9 EPBL without calling its pointers | Hardware tested on SM-N975F. All four state records were received. |
 | `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Hardware tested on SM-N975F. No `EPHRDY!!` record returned, so execution stopped before the receive checkpoint. |
 | `epbl_header_noic_probe` | Repeats the matched Binary 9 header-parser probe without the blocking EL3 I-cache operation | Hardware tested on SM-N975F. Relocation and EP2 rearm passed; USB disconnected during the EPBL host write. |
-| `epbl_header_staged_probe` | Separates exact EPBL reception and hash verification from the matched BootROM header-parser call | Built and locally validated. Hardware validation is pending. |
+| `epbl_header_staged_probe` | Separates exact EPBL reception and hash verification from the matched BootROM header-parser call | Hardware tested on SM-N975F. Exact reception and the stock header parser passed. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
@@ -471,6 +471,13 @@ already received if the device disconnects during a later USB read or write.
 The locally validated 1016-byte artifact has SHA-256
 `907f34b8292c8903d667e2c043d4c573abe7b62911d2451a8f555d0fffd3a3e5`.
 
+The 2026-10-04 hardware run returned `EHSRDY!!`, `EHSHASH!`, and
+`EHSPASS!`. The raw FNV-1a matched `0xfdfb55e38228e523`; parser `0x17c54`
+returned one and produced size `0x3000`, checksum `0xb82c55e7`, and first
+qword `0x18`. The 288-byte capture at
+`/tmp/exynos9825_epbl_header_staged_probe.bin` has SHA-256
+`c1ebfabf6c677b04f18ae833dc2f5b5b3c2a54b54a9beff07fe84ad089668c11`.
+
 ```sh
 sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
     --houston-dir ../houston-pub \
@@ -481,7 +488,8 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
     --debug
 ```
 
-Full PASS requires `EHSRDY!!`, `EHSHASH!`, and `EHSPASS!`. A capture ending at
+Full PASS requires `EHSRDY!!`, `EHSHASH!`, and `EHSPASS!`; the 2026-10-04
+hardware run satisfied all three checkpoints. A capture ending at
 `EHSRDY!!` isolates the stop to the EPBL transfer or its completion path. A
 capture ending at `EHSHASH!` proves that the exact `0x3000` bytes arrived and
 isolates the subsequent stop to the parser call or terminal report. Failure

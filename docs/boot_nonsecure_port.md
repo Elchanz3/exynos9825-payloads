@@ -918,7 +918,7 @@ disconnect after some or all bytes were transferred but before the blocking
 write returns. The old runner discarded the two records because the exception
 occurred before its output write.
 
-The next hardware boundary is `epbl_header_staged_probe`. It preserves the
+The staged hardware boundary was `epbl_header_staged_probe`. It preserves the
 same no-cache relocation, destination, receive size, pinned EPBL hash, and
 BootROM parser, but it omits the extra EP1 marker before event repair. It emits
 `EHSRDY!!` only after the EP2 OUT transfer is armed. Once reception completes
@@ -931,7 +931,16 @@ read or write disconnect. The locally validated 1016-byte staged artifact has
 SHA-256
 `907f34b8292c8903d667e2c043d4c573abe7b62911d2451a8f555d0fffd3a3e5`.
 
+The 2026-10-04 hardware run completed the expected sequence `EHSRDY!!`,
+`EHSHASH!`, and `EHSPASS!`. The raw FNV-1a was
+`0xfdfb55e38228e523`. Parser `0x17c54` returned one and populated size
+`0x3000`, checksum `0xb82c55e7`, and first qword `0x18`. All post-receive
+records reported Secure EL3 (`CurrentEL = 0xc`). The saved 288-byte capture
+at `/tmp/exynos9825_epbl_header_staged_probe.bin` has SHA-256
+`c1ebfabf6c677b04f18ae833dc2f5b5b3c2a54b54a9beff07fe84ad089668c11`.
+
 The expected full record order is `EHSRDY!!`, `EHSHASH!`, and `EHSPASS!`.
+The hardware run satisfied this boundary completely.
 Stopping at `EHSRDY!!` bounds the failure to reception or transfer completion.
 Stopping at `EHSHASH!` proves exact EPBL reception and bounds the failure to
 the parser call or terminal report. The probe does not execute EPBL, call the
