@@ -790,8 +790,15 @@ be retried.
 call a BootROM helper. It copies a self-contained worker to `0x02025000`,
 compares every copied qword, and emits `RELCPY!!` while still executing in the
 Houston area. It then invalidates the EL3 instruction cache and branches to
-the copy, which emits `RELPASS!` with a private TRB. Hardware validation is
-pending.
+the copy, which attempts to emit `RELPASS!` with a private TRB.
+
+The hardware run on 2026-10-03 returned `RELCPY!!` with source
+`0x02022110`, target `0x02025000`, copy size `0x128`, no mismatch, and
+`CurrentEL = 0xc`. No `RELPASS!` record followed. The 96-byte capture has
+SHA-256 `1cece05adacd278a9984932c19ddc2dc6b388f5c1c1c685d2bc9972f219ac426`.
+The copy itself is therefore confirmed. The remaining result does not yet
+separate an abort on the first relocated instruction fetch from a second USB
+transfer that failed after relocated execution began.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
