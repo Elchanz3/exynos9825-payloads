@@ -867,7 +867,13 @@ Houston image and invalidates only the cache line containing `0x02024000` with
 its private EL3 vector reports `ICTFAIL!`. The probe does not copy to or branch
 to the target address. The measured `SCTLR_EL3 = 0x00c51838` has the data-cache
 enable bit clear, so this isolated test deliberately omits `dc cvau`. Hardware
-validation is pending.
+validation on 2026-10-03 returned only `ICTPRE!!`. The record confirmed EL3,
+`SCTLR_EL3 = 0x00c51838`, and target `0x02024000`; no `ICTPASS!` or `ICTFAIL!`
+followed. The raw 96-byte capture has SHA-256
+`2af7778ab629260624ddb101dc6d6bd989118a3fc6716daffb5ac75a0ce1d39b`.
+Since the operation targets a line outside the executing image, the stop is
+bounded to `ic ivau` or the following completion barrier. It does not establish
+whether an uncached first fetch from `0x02024000` can execute.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO

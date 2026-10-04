@@ -57,7 +57,7 @@ shown above.
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
 | `icache_maintenance_probe` | Isolates the EL3 instruction-cache invalidation sequence without relocating code | Hardware tested on SM-N975F. Only the pre-invalidation checkpoint returned. |
-| `icache_target_probe` | Invalidates only the candidate target line with `ic ivau` while execution remains in the Houston image | Built and statically verified. Hardware validation is pending. |
+| `icache_target_probe` | Invalidates only the candidate target line with `ic ivau` while execution remains in the Houston image | Hardware tested on SM-N975F. Only the pre-invalidation checkpoint returned. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -381,6 +381,14 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
 to the current EL3 image. `ICTFAIL!` reports a synchronous exception. Receiving
 only `ICTPRE!!` means the targeted maintenance path did not reach the terminal
 report.
+
+The hardware run on 2026-10-03 returned only `ICTPRE!!`. The record confirmed
+EL3 execution, `SCTLR_EL3 = 0x00c51838`, and target `0x02024000`. The raw
+96-byte record has SHA-256
+`2af7778ab629260624ddb101dc6d6bd989118a3fc6716daffb5ac75a0ce1d39b`.
+Because the invalidated line is outside the executing image, this result
+isolates the stop to `ic ivau` or the following completion barrier. It still
+does not test an instruction fetch from `0x02024000`.
 
 ### Same-session USB receive probe
 
