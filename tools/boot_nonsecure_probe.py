@@ -44,6 +44,14 @@ EPBL_VERIFY_STAGED_PARSED_MAGIC = b"EVSPARSE"
 EPBL_VERIFY_STAGED_PASS_MAGIC = b"EVSPASS!"
 EPBL_VERIFY_STAGED_FAIL_MAGIC = b"EVSFAIL!"
 EPBL_VERIFY_STAGED_VERIFY_FAIL_MAGIC = b"EVVFAIL!"
+EPBL_POSTLOAD_STAGED_READY_MAGIC = b"EPLRDY!!"
+EPBL_POSTLOAD_STAGED_HASH_MAGIC = b"EPLHASH!"
+EPBL_POSTLOAD_STAGED_PARSED_MAGIC = b"EPLPARSE"
+EPBL_POSTLOAD_STAGED_VERIFIED_MAGIC = b"EPLVERFY"
+EPBL_POSTLOAD_STAGED_PASS_MAGIC = b"EPLPASS!"
+EPBL_POSTLOAD_STAGED_FAIL_MAGIC = b"EPLFAIL!"
+EPBL_POSTLOAD_STAGED_VERIFY_FAIL_MAGIC = b"EPLVFAIL"
+EPBL_POSTLOAD_STAGED_POSTLOAD_FAIL_MAGIC = b"EPLPFAIL"
 RELOCATION_COPY_MAGIC = b"RELCPY!!"
 RELOCATION_PASS_MAGIC = b"RELPASS!"
 RELOCATION_FAIL_MAGIC = b"RELFAIL!"
@@ -185,6 +193,19 @@ EPBL_VERIFY_FIELDS = (
     "CurrentEL",
 )
 
+EPBL_POSTLOAD_FIELDS = (
+    "status",
+    "post-load return",
+    "security info before 0x0202007c",
+    "security info after 0x0202007c",
+    "timing value 0x02020084",
+    "timing value 0x02020088",
+    "security status 0x10001000",
+    "parsed BL1 size",
+    "parsed BL1 checksum",
+    "CurrentEL",
+)
+
 RELOCATION_FIELDS = (
     "status",
     "source address",
@@ -289,12 +310,24 @@ def decode_record(data: bytes):
         EPBL_VERIFY_STAGED_HASH_MAGIC,
         EPBL_VERIFY_STAGED_PARSED_MAGIC,
         EPBL_VERIFY_STAGED_FAIL_MAGIC,
+        EPBL_POSTLOAD_STAGED_READY_MAGIC,
+        EPBL_POSTLOAD_STAGED_HASH_MAGIC,
+        EPBL_POSTLOAD_STAGED_PARSED_MAGIC,
+        EPBL_POSTLOAD_STAGED_FAIL_MAGIC,
     ):
         fields = EPBL_HEADER_FIELDS
     elif magic in (
         EPBL_VERIFY_STAGED_PASS_MAGIC,
         EPBL_VERIFY_STAGED_VERIFY_FAIL_MAGIC,
     ):
+        fields = EPBL_VERIFY_FIELDS
+    elif magic in (
+        EPBL_POSTLOAD_STAGED_VERIFIED_MAGIC,
+        EPBL_POSTLOAD_STAGED_PASS_MAGIC,
+        EPBL_POSTLOAD_STAGED_POSTLOAD_FAIL_MAGIC,
+    ):
+        fields = EPBL_POSTLOAD_FIELDS
+    elif magic == EPBL_POSTLOAD_STAGED_VERIFY_FAIL_MAGIC:
         fields = EPBL_VERIFY_FIELDS
     elif magic in (
         RELOCATION_COPY_MAGIC,
@@ -462,26 +495,31 @@ def decode_record(data: bytes):
         EPBL_HEADER_NOIC_READY_MAGIC,
         EPBL_HEADER_STAGED_READY_MAGIC,
         EPBL_VERIFY_STAGED_READY_MAGIC,
+        EPBL_POSTLOAD_STAGED_READY_MAGIC,
     ):
         checkpoint = (
-            "staged verifier armed EP2 OUT at the stock EPBL destination"
-            if magic == EPBL_VERIFY_STAGED_READY_MAGIC
+            "staged post-load probe armed EP2 OUT at the stock EPBL destination"
+            if magic == EPBL_POSTLOAD_STAGED_READY_MAGIC
             else (
-                "staged no-cache worker armed EP2 OUT at the stock EPBL destination"
-                if magic == EPBL_HEADER_STAGED_READY_MAGIC
+                "staged verifier armed EP2 OUT at the stock EPBL destination"
+                if magic == EPBL_VERIFY_STAGED_READY_MAGIC
                 else (
-                    "relocated no-cache worker armed EP2 OUT at the stock EPBL destination"
-                    if magic == EPBL_HEADER_NOIC_READY_MAGIC
+                    "staged no-cache worker armed EP2 OUT at the stock EPBL destination"
+                    if magic == EPBL_HEADER_STAGED_READY_MAGIC
                     else (
-                        "relocated worker armed EP2 OUT at the stock EPBL destination"
-                        if magic == EPBL_HEADER_READY_MAGIC
+                        "relocated no-cache worker armed EP2 OUT at the stock EPBL destination"
+                        if magic == EPBL_HEADER_NOIC_READY_MAGIC
                         else (
-                            "EP2 OUT armed; waiting for Binary 9 EPBL"
-                            if magic == EPBL_READY_MAGIC
+                            "relocated worker armed EP2 OUT at the stock EPBL destination"
+                            if magic == EPBL_HEADER_READY_MAGIC
                             else (
-                                "EP2 OUT armed; waiting for framed transfer"
-                                if magic == RX_ARMED_MAGIC
-                                else "waiting for framed EP2 OUT transfer"
+                                "EP2 OUT armed; waiting for Binary 9 EPBL"
+                                if magic == EPBL_READY_MAGIC
+                                else (
+                                    "EP2 OUT armed; waiting for framed transfer"
+                                    if magic == RX_ARMED_MAGIC
+                                    else "waiting for framed EP2 OUT transfer"
+                                )
                             )
                         )
                     )
@@ -581,7 +619,35 @@ def decode_record(data: bytes):
         print(f"raw EPBL checkpoint  = {'PASS' if passed else 'FAIL'}")
         return None if passed else False
 
+    if magic == EPBL_POSTLOAD_STAGED_HASH_MAGIC:
+        passed = (
+            values[0] == 0
+            and values[1] == 1
+            and values[2] == 0x02025000
+            and values[3] == 0x02022000
+            and values[4] == 0xFDFB55E38228E523
+            and values[9] == 0xC
+        )
+        print(f"raw EPBL checkpoint  = {'PASS' if passed else 'FAIL'}")
+        return None if passed else False
+
     if magic == EPBL_VERIFY_STAGED_PARSED_MAGIC:
+        passed = (
+            values[0] == 0
+            and values[1] == 1
+            and values[2] == 0x02025000
+            and values[3] == 0x02022000
+            and values[4] == 0xFDFB55E38228E523
+            and values[5] == 1
+            and values[6] == 0x3000
+            and values[7] == 0xB82C55E7
+            and values[8] == 0x18
+            and values[9] == 0xC
+        )
+        print(f"EPBL parser checkpoint = {'PASS' if passed else 'FAIL'}")
+        return None if passed else False
+
+    if magic == EPBL_POSTLOAD_STAGED_PARSED_MAGIC:
         passed = (
             values[0] == 0
             and values[1] == 1
@@ -599,6 +665,10 @@ def decode_record(data: bytes):
 
     if magic == EPBL_VERIFY_STAGED_FAIL_MAGIC:
         print("EPBL verification prerequisite = FAIL")
+        return False
+
+    if magic == EPBL_POSTLOAD_STAGED_FAIL_MAGIC:
+        print("EPBL post-load prerequisite = FAIL")
         return False
 
     if magic in (
@@ -621,6 +691,48 @@ def decode_record(data: bytes):
         branch = "CryptoCell" if values[3] == 1 else "software SHA-256"
         print(f"verification branch  = {branch}")
         print(f"EPBL verification    = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic == EPBL_POSTLOAD_STAGED_VERIFY_FAIL_MAGIC:
+        expected_selector = 0 if values[2] & 0x80 else 1
+        passed = (
+            values[0] == 1
+            and values[1] == 1
+            and values[3] == expected_selector
+            and (values[4] & 0xF) == 1
+            and (values[5] & 0xC0) == 0
+            and (values[6] & 0xC0) == 0xC0
+            and values[7] == 0x3000
+            and values[8] == 0xB82C55E7
+            and values[9] == 0xC
+        )
+        print(f"EPBL verification    = {'PASS' if passed else 'FAIL'}")
+        return False
+
+    if magic == EPBL_POSTLOAD_STAGED_VERIFIED_MAGIC:
+        passed = (
+            values[0] == 0
+            and values[1] == 0
+            and values[7] == 0x3000
+            and values[8] == 0xB82C55E7
+            and values[9] == 0xC
+        )
+        print(f"verification checkpoint = {'PASS' if passed else 'FAIL'}")
+        return None if passed else False
+
+    if magic in (
+        EPBL_POSTLOAD_STAGED_PASS_MAGIC,
+        EPBL_POSTLOAD_STAGED_POSTLOAD_FAIL_MAGIC,
+    ):
+        passed = (
+            magic == EPBL_POSTLOAD_STAGED_PASS_MAGIC
+            and values[0] == 1
+            and values[1] == 1
+            and values[7] == 0x3000
+            and values[8] == 0xB82C55E7
+            and values[9] == 0xC
+        )
+        print(f"EPBL post-load setup = {'PASS' if passed else 'FAIL'}")
         return passed
 
     if magic in (
@@ -745,6 +857,10 @@ def read_probe_records(device, usb_core) -> bytes:
             EPBL_VERIFY_STAGED_PASS_MAGIC,
             EPBL_VERIFY_STAGED_FAIL_MAGIC,
             EPBL_VERIFY_STAGED_VERIFY_FAIL_MAGIC,
+            EPBL_POSTLOAD_STAGED_PASS_MAGIC,
+            EPBL_POSTLOAD_STAGED_FAIL_MAGIC,
+            EPBL_POSTLOAD_STAGED_VERIFY_FAIL_MAGIC,
+            EPBL_POSTLOAD_STAGED_POSTLOAD_FAIL_MAGIC,
             RELOCATION_PASS_MAGIC,
             RELOCATION_FAIL_MAGIC,
             RELOCATION_FETCH_PASS_MAGIC,
@@ -829,6 +945,7 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_HEADER_NOIC_FAIL_MAGIC,
         EPBL_HEADER_STAGED_FAIL_MAGIC,
         EPBL_VERIFY_STAGED_FAIL_MAGIC,
+        EPBL_POSTLOAD_STAGED_FAIL_MAGIC,
     ):
         records.append(ready)
         print(f"Received record {len(records)}: {ready[:8]!r}")
@@ -841,6 +958,7 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_HEADER_NOIC_READY_MAGIC,
         EPBL_HEADER_STAGED_READY_MAGIC,
         EPBL_VERIFY_STAGED_READY_MAGIC,
+        EPBL_POSTLOAD_STAGED_READY_MAGIC,
     ):
         raise RuntimeError(f"unexpected receive-probe marker {ready[:8]!r}")
 
@@ -852,6 +970,7 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_HEADER_NOIC_READY_MAGIC,
         EPBL_HEADER_STAGED_READY_MAGIC,
         EPBL_VERIFY_STAGED_READY_MAGIC,
+        EPBL_POSTLOAD_STAGED_READY_MAGIC,
     ):
         if receive_payload is None:
             raise RuntimeError("EPBL probe requires --receive-file")
@@ -907,6 +1026,8 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_HEADER_STAGED_FAIL_MAGIC,
         EPBL_VERIFY_STAGED_HASH_MAGIC,
         EPBL_VERIFY_STAGED_FAIL_MAGIC,
+        EPBL_POSTLOAD_STAGED_HASH_MAGIC,
+        EPBL_POSTLOAD_STAGED_FAIL_MAGIC,
     ):
         raise RuntimeError(f"unexpected receive result {result[:8]!r}")
     records.append(result)
@@ -964,6 +1085,66 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
             EPBL_VERIFY_STAGED_VERIFY_FAIL_MAGIC,
         ):
             raise RuntimeError(f"unexpected verification result {terminal[:8]!r}")
+        records.append(terminal)
+        print(f"Received record {len(records)}: {terminal[:8]!r}")
+
+    if result[:8] == EPBL_POSTLOAD_STAGED_HASH_MAGIC:
+        parsed = read_after_checkpoint(EPBL_POSTLOAD_STAGED_HASH_MAGIC)
+        if len(parsed) != RECORD_SIZE:
+            print(
+                f"Header parser stopped after {result[:8]!r}: got "
+                f"0x{len(parsed):x} result bytes, expected "
+                f"0x{RECORD_SIZE:x}",
+                file=sys.stderr,
+            )
+            return b"".join(records)
+        if parsed[:8] not in (
+            EPBL_POSTLOAD_STAGED_PARSED_MAGIC,
+            EPBL_POSTLOAD_STAGED_FAIL_MAGIC,
+        ):
+            raise RuntimeError(f"unexpected parser result {parsed[:8]!r}")
+        records.append(parsed)
+        print(f"Received record {len(records)}: {parsed[:8]!r}")
+        if parsed[:8] == EPBL_POSTLOAD_STAGED_FAIL_MAGIC:
+            return b"".join(records)
+
+        verified = read_after_checkpoint(EPBL_POSTLOAD_STAGED_PARSED_MAGIC)
+        if len(verified) != RECORD_SIZE:
+            print(
+                f"EPBL verification stopped after {parsed[:8]!r}: got "
+                f"0x{len(verified):x} result bytes, expected "
+                f"0x{RECORD_SIZE:x}",
+                file=sys.stderr,
+            )
+            return b"".join(records)
+        if verified[:8] not in (
+            EPBL_POSTLOAD_STAGED_VERIFIED_MAGIC,
+            EPBL_POSTLOAD_STAGED_VERIFY_FAIL_MAGIC,
+        ):
+            raise RuntimeError(
+                f"unexpected verification result {verified[:8]!r}"
+            )
+        records.append(verified)
+        print(f"Received record {len(records)}: {verified[:8]!r}")
+        if verified[:8] == EPBL_POSTLOAD_STAGED_VERIFY_FAIL_MAGIC:
+            return b"".join(records)
+
+        terminal = read_after_checkpoint(EPBL_POSTLOAD_STAGED_VERIFIED_MAGIC)
+        if len(terminal) != RECORD_SIZE:
+            print(
+                f"EPBL post-load setup stopped after {verified[:8]!r}: got "
+                f"0x{len(terminal):x} result bytes, expected "
+                f"0x{RECORD_SIZE:x}",
+                file=sys.stderr,
+            )
+            return b"".join(records)
+        if terminal[:8] not in (
+            EPBL_POSTLOAD_STAGED_PASS_MAGIC,
+            EPBL_POSTLOAD_STAGED_POSTLOAD_FAIL_MAGIC,
+        ):
+            raise RuntimeError(
+                f"unexpected post-load result {terminal[:8]!r}"
+            )
         records.append(terminal)
         print(f"Received record {len(records)}: {terminal[:8]!r}")
 

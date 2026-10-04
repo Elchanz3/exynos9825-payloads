@@ -12,9 +12,10 @@ The SoC separation also follows the approach used by the
 
 The current payloads operate only on volatile iRAM and the already configured
 USB controller state. They do not write eFuses, OTP, UFS, or persistent flash.
-PMU, GPIO, CryptoCell, secure-boot state changes, stage execution, and later
+Direct PMU, GPIO, secure-boot state changes, stage execution, and later
 boot-stage loading are not implemented because their S5E9825 addresses and
-behavior have not been validated.
+behavior have not been validated. The matched BootROM verifier's CryptoCell
+branch has been exercised without patching its security decision.
 
 ## Confirmed target data
 
@@ -56,6 +57,7 @@ shown above.
 | `epbl_header_noic_probe` | Repeats the matched Binary 9 header-parser probe without the blocking EL3 I-cache operation | Hardware tested on SM-N975F. Relocation and EP2 rearm passed; USB disconnected during the EPBL host write. |
 | `epbl_header_staged_probe` | Separates exact EPBL reception and hash verification from the matched BootROM header-parser call | Hardware tested on SM-N975F. Exact reception and the stock header parser passed. |
 | `epbl_verify_staged_probe` | Runs the matched stock BootROM verifier only after separate receive, hash, and parser checkpoints | Hardware tested on SM-N975F. Exact reception, parsing, and the stock CryptoCell verification branch passed. |
+| `epbl_postload_staged_probe` | Runs the stock EUB post-load setup after authenticated EPBL checkpoints without entering EPBL | Host validated. Hardware validation pending. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
@@ -541,6 +543,43 @@ to `0xdf`; the parsed size and checksum remained `0x3000` and `0xb82c55e7`,
 and the terminal record reported Secure EL3 (`CurrentEL = 0xc`). The saved
 384-byte capture at `/tmp/exynos9825_epbl_verify_staged_probe.bin` has SHA-256
 `c4c43705ac582927382ef51d1151bb7563af9a01b269243847deb78798da4cb0`.
+
+`epbl_postload_staged_probe` extends the proven chain to the last stock
+BootROM call before EPBL execution. Static analysis of the matching BootROM
+shows that the EUB dispatcher calls `0x5b58` with argument one after verifier
+`0xc9a0` succeeds. It then records another timing value and eventually
+branches through the EPBL entry pointer at `0x02022010`. Routine `0x5b58(1)`
+updates volatile security and timing state through its stock helpers; it does
+not enter EPBL itself.
+
+The new probe emits `EPLRDY!!`, `EPLHASH!`, `EPLPARSE`, and `EPLVERFY` at
+the same already validated boundaries. Only after the host consumes
+`EPLVERFY` does it call `0x5b58(1)`. `EPLPASS!` requires return one, preserved
+parsed size `0x3000`, preserved checksum `0xb82c55e7`, and Secure EL3.
+`EPLVFAIL` identifies verifier failure and `EPLPFAIL` with status `0x105`
+identifies a failed post-load return or damaged parsed metadata. The records
+also capture `0x0202007c`, timing words `0x02020084` and `0x02020088`, and
+security status `0x10001000`. The probe stops after reporting and does not
+branch to `0x02022010`.
+
+The locally validated 1544-byte artifact has SHA-256
+`4535245f668b52e53bb671c8408e4435a21cfc331df3d481dddab5263da7b20c`.
+
+```sh
+cd /home/chanz22/Documents/GitHub/exynos9825-payloads
+
+sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
+    tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_postload_staged_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_postload_staged_probe.bin \
+    --debug
+```
+
+Full PASS requires `EPLRDY!!`, `EPLHASH!`, `EPLPARSE`, `EPLVERFY`, and
+`EPLPASS!` in that order. Hardware validation is pending at this boundary.
 
 ### Same-session USB receive probe
 

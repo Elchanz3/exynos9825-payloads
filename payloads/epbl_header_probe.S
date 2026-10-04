@@ -8,7 +8,19 @@
 #define PROBE_EPBL_DESTINATION         0x02022000
 #define PROBE_EPBL_SIZE                0x3000
 
-#ifdef EPBL_VERIFY_STAGED
+#ifdef EPBL_POSTLOAD_STAGED
+#define EPBL_VERIFY_PATH
+#define PROBE_INIT_MAGIC               "EPLINIT!"
+#define PROBE_READY_MAGIC              0x21215944524c5045
+#define PROBE_HASH_MAGIC               0x21485341484c5045
+#define PROBE_PARSED_MAGIC             0x45535241504c5045
+#define PROBE_VERIFIED_MAGIC           0x59465245564c5045
+#define PROBE_PASS_MAGIC               0x21535341504c5045
+#define PROBE_FAIL_MAGIC               0x214c4941464c5045
+#define PROBE_VERIFY_FAIL_MAGIC        0x4c494146564c5045
+#define PROBE_POSTLOAD_FAIL_MAGIC      0x4c494146504c5045
+#elif defined(EPBL_VERIFY_STAGED)
+#define EPBL_VERIFY_PATH
 #define PROBE_INIT_MAGIC               "EVSINIT!"
 #define PROBE_READY_MAGIC              0x2121594452535645
 #define PROBE_HASH_MAGIC               0x2148534148535645
@@ -53,6 +65,11 @@
 #define PROBE_SECURITY_STATUS          0x1000b014
 #define PROBE_BOOT_STATE               0x02020064
 #define PROBE_VERIFY_STATUS            0x02020070
+#define PROBE_POSTLOAD                 0x00005b58
+#define PROBE_POSTLOAD_STATE           0x0202007c
+#define PROBE_POSTLOAD_TIMING_START    0x02020084
+#define PROBE_POSTLOAD_TIMING_END      0x02020088
+#define PROBE_POSTLOAD_SECURITY        0x10001000
 
 HOUSTON_ENTRY payload_main
 
@@ -74,7 +91,7 @@ payload_main:
     b.lo    1b
 
 #if !defined(EPBL_HEADER_NOIC) && !defined(EPBL_HEADER_STAGED) && \
-    !defined(EPBL_VERIFY_STAGED)
+    !defined(EPBL_VERIFY_PATH)
     /* Preserve the original diagnostic for comparison with its hardware run. */
     dsb     sy
     ic      iallu
@@ -206,7 +223,7 @@ relocated_entry:
     cmp     x23, x24
     b.ne    hash_failed
 
-#if defined(EPBL_HEADER_STAGED) || defined(EPBL_VERIFY_STAGED)
+#if defined(EPBL_HEADER_STAGED) || defined(EPBL_VERIFY_PATH)
     mrs     x25, CurrentEL
     str     x25, [x19, #0x58]
     ldr     x25, =PROBE_HASH_MAGIC
@@ -245,7 +262,7 @@ relocated_entry:
     cmp     x25, x24
     b.ne    parsed_state_failed
 
-#ifdef EPBL_VERIFY_STAGED
+#ifdef EPBL_VERIFY_PATH
     /* Bound the next hardware step after the matched parser has passed. */
     ldr     x20, =PROBE_PARSED_MAGIC
     str     x20, [x19]
@@ -290,11 +307,84 @@ relocated_entry:
     cmp     w25, #1
     b.ne    verifier_failed
 
+#ifdef EPBL_POSTLOAD_STAGED
+    /* Snapshot the exact stock boundary before its post-load setup routine. */
+    ldr     x20, =PROBE_VERIFIED_MAGIC
+    str     x20, [x19]
+    str     xzr, [x19, #0x10]
+    str     xzr, [x19, #0x18]
+    ldr     x20, =PROBE_POSTLOAD_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x20]
+    str     x21, [x19, #0x28]
+    ldr     x20, =PROBE_POSTLOAD_TIMING_START
+    ldr     w22, [x20]
+    str     x22, [x19, #0x30]
+    ldr     x20, =PROBE_POSTLOAD_TIMING_END
+    ldr     w23, [x20]
+    str     x23, [x19, #0x38]
+    ldr     x20, =PROBE_POSTLOAD_SECURITY
+    ldr     w24, [x20]
+    str     x24, [x19, #0x40]
+    ldr     x20, =0x02020030
+    ldr     w26, [x20]
+    ldr     w27, [x20, #4]
+    str     x26, [x19, #0x48]
+    str     x27, [x19, #0x50]
+    mrs     x28, CurrentEL
+    str     x28, [x19, #0x58]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+
+    /* Match the EUB main path: the mode selector passed one to 0x5b58. */
+    mov     w0, #1
+    ldr     x16, =PROBE_POSTLOAD
+    blr     x16
+    mov     w25, w0
+
+    adr     x19, probe_record
+    str     x25, [x19, #0x18]
+    ldr     x20, =PROBE_POSTLOAD_STATE
+    ldr     w22, [x20]
+    str     x22, [x19, #0x28]
+    ldr     x20, =PROBE_POSTLOAD_TIMING_START
+    ldr     w22, [x20]
+    str     x22, [x19, #0x30]
+    ldr     x20, =PROBE_POSTLOAD_TIMING_END
+    ldr     w23, [x20]
+    str     x23, [x19, #0x38]
+    ldr     x20, =PROBE_POSTLOAD_SECURITY
+    ldr     w24, [x20]
+    str     x24, [x19, #0x40]
+    ldr     x20, =0x02020030
+    ldr     w26, [x20]
+    ldr     w27, [x20, #4]
+    str     x26, [x19, #0x48]
+    str     x27, [x19, #0x50]
+    mrs     x28, CurrentEL
+    str     x28, [x19, #0x58]
+
+    cmp     w25, #1
+    b.ne    postload_failed
+    cmp     w26, #PROBE_EPBL_SIZE
+    b.ne    postload_failed
+    ldr     w20, =PROBE_EPBL_CHECKSUM
+    cmp     w27, w20
+    b.ne    postload_failed
+
     ldr     x20, =PROBE_PASS_MAGIC
     str     x20, [x19]
     mov     x20, #1
     str     x20, [x19, #0x10]
     b       report_result
+#else
+    ldr     x20, =PROBE_PASS_MAGIC
+    str     x20, [x19]
+    mov     x20, #1
+    str     x20, [x19, #0x10]
+    b       report_result
+#endif
 #else
     ldr     x20, =PROBE_PASS_MAGIC
     str     x20, [x19]
@@ -319,11 +409,20 @@ parsed_state_failed:
     mov     x20, #0x103
     b       report_failure
 
-#ifdef EPBL_VERIFY_STAGED
+#ifdef EPBL_VERIFY_PATH
 verifier_failed:
     ldr     x20, =PROBE_VERIFY_FAIL_MAGIC
     str     x20, [x19]
     mov     x20, #0x104
+    str     x20, [x19, #0x10]
+    b       report_result
+#endif
+
+#ifdef EPBL_POSTLOAD_STAGED
+postload_failed:
+    ldr     x20, =PROBE_POSTLOAD_FAIL_MAGIC
+    str     x20, [x19]
+    mov     x20, #0x105
     str     x20, [x19, #0x10]
     b       report_result
 #endif

@@ -1005,6 +1005,51 @@ does not yet prove that the volatile EPBL/FWBL1 state expected at the EPBL
 entry has been initialized, so the next probe must observe or reconstruct the
 stock post-verification setup before branching into EPBL.
 
+Static analysis now identifies that next stock boundary. The EUB dispatcher
+calls boot-mode helper `0x17d0c`, then `0x5780`. The observed
+`0x0202006c = 0x10003000` matches the return-one branch in `0x5780`, so after
+loader and verifier routine `0xcc68` succeeds the dispatcher calls
+`0x5b58(1)`. It then calls timing helper `0x18768` with `0x0202008c`, performs
+its cache operation, and reaches the branch helper at `0x1c9a0`. That helper
+loads and branches to the EPBL entry pointer at `0x02022010`.
+
+Routine `0x5b58(1)` is still a distinct, non-executing boundary. It first
+calls `0x18768(0x02020084)`, calls security-state routine `0x599c`, calls
+`0x18768(0x02020088)`, and tail-calls `0x58b8`. Routine `0x599c` derives and
+writes volatile security information at `0x0202007c` through matched stock
+helpers. Routine `0x58b8` returns one immediately when bit 4 at `0x10001000`
+is clear; its other branch performs additional stock setup. None of these
+operations branches into EPBL.
+
+`epbl_postload_staged_probe` isolates that exact call. It preserves the
+validated receive, raw hash, parser, and verifier flow and emits `EPLRDY!!`,
+`EPLHASH!`, `EPLPARSE`, and `EPLVERFY` before each boundary. After the host
+consumes `EPLVERFY`, it calls only `0x5b58(1)` and emits `EPLPASS!` if the
+return is one and the parsed size and checksum remain `0x3000` and
+`0xb82c55e7`. `EPLVFAIL` reports verifier failure; `EPLPFAIL` with status
+`0x105` reports post-load failure. The post-load records snapshot security
+information `0x0202007c`, timing words `0x02020084` and `0x02020088`, security
+status `0x10001000`, parsed metadata, and `CurrentEL`. The probe never calls
+the EPBL entry at `0x02022010` and makes no persistent write.
+
+The host-built 1544-byte artifact has SHA-256
+`4535245f668b52e53bb671c8408e4435a21cfc331df3d481dddab5263da7b20c`.
+Its full expected sequence is `EPLRDY!!`, `EPLHASH!`, `EPLPARSE`,
+`EPLVERFY`, and `EPLPASS!`. Hardware validation is pending.
+
+```sh
+cd /home/chanz22/Documents/GitHub/exynos9825-payloads
+
+sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
+    tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_postload_staged_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_postload_staged_probe.bin \
+    --debug
+```
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
