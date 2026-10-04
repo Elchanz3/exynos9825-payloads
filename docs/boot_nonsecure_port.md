@@ -947,6 +947,51 @@ the parser call or terminal report. The probe does not execute EPBL, call the
 following verification routine, access guessed MMIO, or write persistent
 storage.
 
+The next isolated boundary is `epbl_verify_staged_probe`. BootROM routine
+`0xc9a0` reads the parsed size and checksum at `0x02020030` and
+`0x02020034`, verifies the body beginning at `0x02022010`, and compares the
+result with the parsed checksum. Helper `0x17334` selects the verification
+branch from bit 7 of security status register `0x1000b014`: a clear bit
+selects the CryptoCell path, while a set bit selects the software SHA-256
+path. The verifier also updates the volatile status word at `0x02020070`
+according to the low nibble of boot state `0x02020064`.
+
+The new probe retains the successful no-cache relocation and receive path. It
+emits `EVSRDY!!` after EP2 rearm, `EVSHASH!` after the pinned raw hash matches,
+and `EVSPARSE` only after parser `0x17c54` returns one and produces size
+`0x3000`, checksum `0xb82c55e7`, and first qword `0x18`. Each record must be
+consumed by the host before the worker enters the next stage. After
+`EVSPARSE`, the worker snapshots the branch selector and volatile verification
+state, calls only verifier `0xc9a0`, and snapshots that state again.
+
+`EVSPASS!` requires verifier return one. `EVVFAIL!` with status `0x104`
+reports a verifier return other than one. The host decoder further requires
+the selector to agree with security-status bit 7, boot-state type one, both
+verification status bits set after the call, the expected parsed metadata,
+and `CurrentEL = 0xc`. Generic `EVSFAIL!` records preserve the earlier bounded
+receive and parser failure codes. This probe does not execute EPBL, initialize
+DRAM, change a security controller, or write persistent storage. The locally
+validated 1232-byte artifact has SHA-256
+`fd129f3af4f1bdbac7524f8a49e619923b89b0c9433d6619fbf01ca1b1c40862`.
+
+The exact hardware command is:
+
+```sh
+cd /home/chanz22/Documents/GitHub/exynos9825-payloads
+
+sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
+    tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/epbl_verify_staged_probe.bin \
+    --receive-test \
+    --receive-file /home/chanz22/EUB-N10/hwha_stages/epbl.bin \
+    --output /tmp/exynos9825_epbl_verify_staged_probe.bin \
+    --debug
+```
+
+The expected full sequence is `EVSRDY!!`, `EVSHASH!`, `EVSPARSE`, and
+`EVSPASS!`. Hardware validation is pending at this boundary.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

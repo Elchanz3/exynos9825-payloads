@@ -8,7 +8,15 @@
 #define PROBE_EPBL_DESTINATION         0x02022000
 #define PROBE_EPBL_SIZE                0x3000
 
-#ifdef EPBL_HEADER_STAGED
+#ifdef EPBL_VERIFY_STAGED
+#define PROBE_INIT_MAGIC               "EVSINIT!"
+#define PROBE_READY_MAGIC              0x2121594452535645
+#define PROBE_HASH_MAGIC               0x2148534148535645
+#define PROBE_PARSED_MAGIC             0x4553524150535645
+#define PROBE_PASS_MAGIC               0x2153534150535645
+#define PROBE_FAIL_MAGIC               0x214c494146535645
+#define PROBE_VERIFY_FAIL_MAGIC        0x214c494146565645
+#elif defined(EPBL_HEADER_STAGED)
 #define PROBE_INIT_MAGIC               "EHSINIT!"
 #define PROBE_READY_MAGIC              0x2121594452534845
 #define PROBE_HASH_MAGIC               0x2148534148534845
@@ -40,6 +48,11 @@
 #define PROBE_POLL_EVENTS              0x00002af0
 #define PROBE_ACK_EVENT_HELPER         0x00002fbc
 #define PROBE_PARSE_BL1_HEADER         0x00017c54
+#define PROBE_VERIFY_BL1               0x0000c9a0
+#define PROBE_VERIFY_SELECTOR          0x00017334
+#define PROBE_SECURITY_STATUS          0x1000b014
+#define PROBE_BOOT_STATE               0x02020064
+#define PROBE_VERIFY_STATUS            0x02020070
 
 HOUSTON_ENTRY payload_main
 
@@ -60,7 +73,8 @@ payload_main:
     cmp     x9, x10
     b.lo    1b
 
-#if !defined(EPBL_HEADER_NOIC) && !defined(EPBL_HEADER_STAGED)
+#if !defined(EPBL_HEADER_NOIC) && !defined(EPBL_HEADER_STAGED) && \
+    !defined(EPBL_VERIFY_STAGED)
     /* Preserve the original diagnostic for comparison with its hardware run. */
     dsb     sy
     ic      iallu
@@ -192,7 +206,7 @@ relocated_entry:
     cmp     x23, x24
     b.ne    hash_failed
 
-#ifdef EPBL_HEADER_STAGED
+#if defined(EPBL_HEADER_STAGED) || defined(EPBL_VERIFY_STAGED)
     mrs     x25, CurrentEL
     str     x25, [x19, #0x58]
     ldr     x25, =PROBE_HASH_MAGIC
@@ -231,11 +245,63 @@ relocated_entry:
     cmp     x25, x24
     b.ne    parsed_state_failed
 
+#ifdef EPBL_VERIFY_STAGED
+    /* Bound the next hardware step after the matched parser has passed. */
+    ldr     x20, =PROBE_PARSED_MAGIC
+    str     x20, [x19]
+    str     xzr, [x19, #0x10]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+
+    /* Snapshot the branch selector and volatile BootROM verification state. */
+    ldr     x20, =PROBE_SECURITY_STATUS
+    ldr     w21, [x20]
+    ldr     x16, =PROBE_VERIFY_SELECTOR
+    blr     x16
+    mov     w22, w0
+    ldr     x20, =PROBE_BOOT_STATE
+    ldr     w23, [x20]
+    ldr     x20, =PROBE_VERIFY_STATUS
+    ldr     x24, [x20]
+
+    ldr     x16, =PROBE_VERIFY_BL1
+    blr     x16
+    mov     w25, w0
+
+    adr     x19, probe_record
+    ldr     x20, =PROBE_VERIFY_STATUS
+    ldr     x26, [x20]
+    ldr     x20, =0x02020030
+    ldr     w27, [x20]
+    ldr     w0, [x20, #4]
+    mrs     x28, CurrentEL
+
+    str     x25, [x19, #0x18]
+    str     x21, [x19, #0x20]
+    str     x22, [x19, #0x28]
+    str     x23, [x19, #0x30]
+    str     x24, [x19, #0x38]
+    str     x26, [x19, #0x40]
+    str     x27, [x19, #0x48]
+    str     x0, [x19, #0x50]
+    str     x28, [x19, #0x58]
+
+    cmp     w25, #1
+    b.ne    verifier_failed
+
     ldr     x20, =PROBE_PASS_MAGIC
     str     x20, [x19]
     mov     x20, #1
     str     x20, [x19, #0x10]
     b       report_result
+#else
+    ldr     x20, =PROBE_PASS_MAGIC
+    str     x20, [x19]
+    mov     x20, #1
+    str     x20, [x19, #0x10]
+    b       report_result
+#endif
 
 receive_failed:
     mov     x20, #0x100
@@ -252,6 +318,15 @@ parser_failed:
 parsed_state_failed:
     mov     x20, #0x103
     b       report_failure
+
+#ifdef EPBL_VERIFY_STAGED
+verifier_failed:
+    ldr     x20, =PROBE_VERIFY_FAIL_MAGIC
+    str     x20, [x19]
+    mov     x20, #0x104
+    str     x20, [x19, #0x10]
+    b       report_result
+#endif
 
 cancel_command_failed:
     mov     x20, #0x200
