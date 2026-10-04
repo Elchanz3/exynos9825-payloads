@@ -58,7 +58,7 @@ shown above.
 | `epbl_header_staged_probe` | Separates exact EPBL reception and hash verification from the matched BootROM header-parser call | Hardware tested on SM-N975F. Exact reception and the stock header parser passed. |
 | `epbl_verify_staged_probe` | Runs the matched stock BootROM verifier only after separate receive, hash, and parser checkpoints | Hardware tested on SM-N975F. Exact reception, parsing, and the stock CryptoCell verification branch passed. |
 | `epbl_postload_staged_probe` | Runs the stock EUB post-load helper after authenticated EPBL checkpoints without entering EPBL | Hardware tested on SM-N975F. All five checkpoints and the stock post-load setup passed. |
-| `epbl_entry_staged_probe` | Reproduces the final stock timer and boot-flag calls, then reaches a controlled reporter through the authentic EPBL entry instruction | Host validated; hardware test pending. |
+| `epbl_entry_staged_probe` | Reproduces the final stock timer and boot-flag calls, then reaches a controlled reporter through the authentic EPBL entry instruction | Hardware tested on SM-N975F. The authentic entry branch and controlled second-instruction hook passed. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
@@ -609,6 +609,14 @@ EPBL initialization and makes no persistent write.
 
 The locally validated 1440-byte artifact has SHA-256
 `436b529d175909678927baaff1f6523b2adeacdf830888f158e3fcf14e229bfe`.
+
+The 2026-10-04 hardware run returned `EPERDY!!` and `EPEPASS!`. The stock
+entry at `0x02022010` retained `0x14000002`, the original hook instruction was
+`0x580002d4`, and the temporary branch `0x14000cab` reached `0x020252c4`.
+The terminal record also captured timing value `0x3d7`, boot flags
+`0x00b00edf`, and Secure EL3 (`CurrentEL = 0xc`). The saved 192-byte capture
+at `/tmp/exynos9825_epbl_entry_staged_probe.bin` has SHA-256
+`e9349e66da39247948196c79ab379e4c6327070ebaba3d1d8fb8686924b548f9`.
 
 ```sh
 cd /home/chanz22/Documents/GitHub/exynos9825-payloads

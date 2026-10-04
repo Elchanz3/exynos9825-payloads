@@ -1090,6 +1090,14 @@ verification, and post-load setup. `EPEFFAIL` with status `0x106` identifies
 an unexpected entry instruction, a missing final boot flag, or a return from
 the stock branch helper.
 
+The 2026-10-04 hardware run completed both records. The terminal record
+confirmed original instructions `0x14000002` at `0x02022010` and `0x580002d4`
+at `0x02022018`; patched branch `0x14000cab` resolved to the relocated reporter
+at `0x020252c4`. It also captured timing value `0x3d7`, boot flags
+`0x00b00edf`, and Secure EL3. The 192-byte capture at
+`/tmp/exynos9825_epbl_entry_staged_probe.bin` has SHA-256
+`e9349e66da39247948196c79ab379e4c6327070ebaba3d1d8fb8686924b548f9`.
+
 ```sh
 cd /home/chanz22/Documents/GitHub/exynos9825-payloads
 
