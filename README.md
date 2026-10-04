@@ -55,6 +55,7 @@ shown above.
 | `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Hardware tested on SM-N975F. No `EPHRDY!!` record returned, so execution stopped before the receive checkpoint. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
+| `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Built and statically verified. Hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -309,6 +310,24 @@ Because the runner received zero bytes, it did not create the requested output
 file. A control run in the reserved payload window below the confirmed TRB is
 required before interpreting this as a definitive execute restriction at
 `0x02025000`.
+
+`relocation_fetch_control_probe` provides that control without changing the
+test sequence. Its target is `0x02024000`, after the linked image and before
+the confirmed DWC3 TRB at `0x02024800`. It uses separate `RFCPASS!` and
+`RFCFAIL!` records so the capture identifies the tested address unambiguously.
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/relocation_fetch_control_probe.bin \
+    --output /tmp/exynos9825_relocation_fetch_control_probe.bin \
+    --debug
+```
+
+`RFCPASS!` confirms that the copy, cache maintenance, indirect branch, target
+store, indirect return, and original USB reporter all work at the control
+address. `RFCFAIL!` has the same exception and status layout as the primary
+fetch probe.
 
 ### Same-session USB receive probe
 

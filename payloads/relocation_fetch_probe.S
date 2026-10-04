@@ -4,8 +4,19 @@
 #include "dwc3_ep1.h"
 
 #define PROBE_RECORD_SIZE              0x60
+#ifdef RELOCATION_FETCH_CONTROL
+#define PROBE_RELOCATION_ADDRESS       0x02024000
+#define PROBE_REACHED_SIGNATURE        0x2143455845434652
+#define PROBE_PASS_MAGIC               0x2153534150434652
+#define PROBE_FAIL_MAGIC               0x214c494146434652
+#define PROBE_INIT_MAGIC               "RFCINIT!"
+#else
 #define PROBE_RELOCATION_ADDRESS       0x02025000
 #define PROBE_REACHED_SIGNATURE        0x2143455845584652
+#define PROBE_PASS_MAGIC               0x2153534150584652
+#define PROBE_FAIL_MAGIC               0x214c494146584652
+#define PROBE_INIT_MAGIC               "RFXINIT!"
+#endif
 
 HOUSTON_ENTRY payload_main
 
@@ -54,7 +65,7 @@ relocated_return:
     cmp     x22, x21
     b.ne    return_failed
 
-    ldr     x22, =0x2153534150584652  /* "RFXPASS!" */
+    ldr     x22, =PROBE_PASS_MAGIC
     str     x22, [x20]
     mov     x22, #1
     str     x22, [x20, #0x10]
@@ -62,7 +73,7 @@ relocated_return:
 
 copy_failed:
     adr     x20, probe_record
-    ldr     x21, =0x214c494146584652  /* "RFXFAIL!" */
+    ldr     x21, =PROBE_FAIL_MAGIC
     str     x21, [x20]
     mov     x21, #0x101
     str     x21, [x20, #0x10]
@@ -70,7 +81,7 @@ copy_failed:
     b       send_result
 
 return_failed:
-    ldr     x22, =0x214c494146584652  /* "RFXFAIL!" */
+    ldr     x22, =PROBE_FAIL_MAGIC
     str     x22, [x20]
     mov     x22, #0x102
     str     x22, [x20, #0x10]
@@ -102,7 +113,7 @@ relocated_stub_end:
 .type el3_exception, %function
 el3_exception:
     adr     x20, probe_record
-    ldr     x21, =0x214c494146584652  /* "RFXFAIL!" */
+    ldr     x21, =PROBE_FAIL_MAGIC
     str     x21, [x20]
     mov     x21, #0x100
     str     x21, [x20, #0x10]
@@ -151,9 +162,8 @@ el3_vectors:
 .balign 8
 .type probe_record, %object
 probe_record:
-    .ascii  "RFXINIT!"
+    .ascii  PROBE_INIT_MAGIC
     .word   1
     .word   PROBE_RECORD_SIZE
     .zero   PROBE_RECORD_SIZE - 0x10
 .size probe_record, . - probe_record
-

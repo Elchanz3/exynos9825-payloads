@@ -827,6 +827,15 @@ stub and return, or exception handling after the branch. It does not by itself
 prove an execute restriction because the diagnostic path has not yet passed
 at a nearby control address.
 
+`relocation_fetch_control_probe` repeats the exact test at `0x02024000`. The
+linked image ends before that address, while the confirmed DWC3 TRB begins at
+`0x02024800`, placing the eight-byte control stub in the unused part of the
+linker's existing payload window. It uses `RFCPASS!` and `RFCFAIL!` records.
+A control PASS will validate the diagnostic design and isolate the
+`0x02025000` result to the target region. A control failure will require the
+cache, branch-return, or exception-reporting method to be corrected before
+drawing a memory-attribution conclusion. Hardware validation is pending.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image

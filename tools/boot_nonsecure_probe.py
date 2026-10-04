@@ -35,6 +35,8 @@ RELOCATION_PASS_MAGIC = b"RELPASS!"
 RELOCATION_FAIL_MAGIC = b"RELFAIL!"
 RELOCATION_FETCH_PASS_MAGIC = b"RFXPASS!"
 RELOCATION_FETCH_FAIL_MAGIC = b"RFXFAIL!"
+RELOCATION_FETCH_CONTROL_PASS_MAGIC = b"RFCPASS!"
+RELOCATION_FETCH_CONTROL_FAIL_MAGIC = b"RFCFAIL!"
 EPBL_STATE_MAGICS = {
     b"EPS0IRAM": 0x02020000,
     b"EPS1IRAM": 0x02020050,
@@ -221,7 +223,12 @@ def decode_record(data: bytes):
         RELOCATION_FAIL_MAGIC,
     ):
         fields = RELOCATION_FIELDS
-    elif magic in (RELOCATION_FETCH_PASS_MAGIC, RELOCATION_FETCH_FAIL_MAGIC):
+    elif magic in (
+        RELOCATION_FETCH_PASS_MAGIC,
+        RELOCATION_FETCH_FAIL_MAGIC,
+        RELOCATION_FETCH_CONTROL_PASS_MAGIC,
+        RELOCATION_FETCH_CONTROL_FAIL_MAGIC,
+    ):
         fields = RELOCATION_FETCH_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
@@ -260,18 +267,36 @@ def decode_record(data: bytes):
         print(f"relocated execution = {'PASS' if passed else 'FAIL'}")
         return passed
 
-    if magic in (RELOCATION_FETCH_PASS_MAGIC, RELOCATION_FETCH_FAIL_MAGIC):
+    if magic in (
+        RELOCATION_FETCH_PASS_MAGIC,
+        RELOCATION_FETCH_FAIL_MAGIC,
+        RELOCATION_FETCH_CONTROL_PASS_MAGIC,
+        RELOCATION_FETCH_CONTROL_FAIL_MAGIC,
+    ):
         ec = (values[1] >> 26) & 0x3F
+        is_control = magic in (
+            RELOCATION_FETCH_CONTROL_PASS_MAGIC,
+            RELOCATION_FETCH_CONTROL_FAIL_MAGIC,
+        )
+        expected_magic = (
+            RELOCATION_FETCH_CONTROL_PASS_MAGIC
+            if is_control
+            else RELOCATION_FETCH_PASS_MAGIC
+        )
+        expected_target = 0x02024000 if is_control else 0x02025000
+        expected_signature = (
+            0x2143455845434652 if is_control else 0x2143455845584652
+        )
         passed = (
-            magic == RELOCATION_FETCH_PASS_MAGIC
+            magic == expected_magic
             and values[0] == 1
             and values[1] == 0
             and values[2] == 0
             and values[3] == 0
             and values[4] == 0
-            and values[6] == 0x02025000
+            and values[6] == expected_target
             and values[7] == 0xC
-            and values[8] == 0x2143455845584652
+            and values[8] == expected_signature
             and values[9] == 8
         )
         print(f"ESR exception class  = 0x{ec:02x}")
@@ -450,6 +475,8 @@ def read_probe_records(device, usb_core) -> bytes:
             RELOCATION_FAIL_MAGIC,
             RELOCATION_FETCH_PASS_MAGIC,
             RELOCATION_FETCH_FAIL_MAGIC,
+            RELOCATION_FETCH_CONTROL_PASS_MAGIC,
+            RELOCATION_FETCH_CONTROL_FAIL_MAGIC,
             b"EPS3IRAM",
         ):
             break
