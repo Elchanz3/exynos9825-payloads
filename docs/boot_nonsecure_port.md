@@ -816,7 +816,16 @@ captured `ESR_EL3`, `FAR_EL3`, `ELR_EL3`, and `SPSR_EL3`. Status `0x101`
 identifies a copy mismatch, while status `0x102` identifies a return without
 the expected target signature. No Samsung stage, BootROM parser, receive
 helper, security-controller register, or persistent storage is accessed by
-this probe. Hardware validation is pending.
+this probe.
+
+The hardware run on 2026-10-03 returned no record. Houston completed its iRAM
+write, but the host received neither `RFXPASS!` nor `RFXFAIL!`; consequently no
+raw capture file was written. The prior `RELCPY!!` result already proves that
+the target bytes at `0x02025000` can be written and read back. This result
+therefore bounds the stop to the branch into that address, the two-instruction
+stub and return, or exception handling after the branch. It does not by itself
+prove an execute restriction because the diagnostic path has not yet passed
+at a nearby control address.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO

@@ -54,7 +54,7 @@ shown above.
 | `epbl_state_probe` | Captures the complete iRAM state window consumed by the Binary 9 EPBL without calling its pointers | Hardware tested on SM-N975F. All four state records were received. |
 | `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Hardware tested on SM-N975F. No `EPHRDY!!` record returned, so execution stopped before the receive checkpoint. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
-| `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Built and statically verified. Hardware validation is pending. |
+| `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -300,6 +300,15 @@ sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
 `ESR_EL3`, `FAR_EL3`, `ELR_EL3`, and `SPSR_EL3`. Status `0x101` reports a copy
 mismatch, and `0x102` reports that control returned without the expected
 signature. This diagnostic does not receive or execute a Samsung boot stage.
+
+The hardware run on 2026-10-03 returned no probe record. Houston completed the
+callback overwrite, but neither `RFXPASS!` nor `RFXFAIL!` reached the host.
+Together with the earlier verified copy, this bounds the failure to entry into
+`0x02025000`, return from that stub, or exception handling after the branch.
+Because the runner received zero bytes, it did not create the requested output
+file. A control run in the reserved payload window below the confirmed TRB is
+required before interpreting this as a definitive execute restriction at
+`0x02025000`.
 
 ### Same-session USB receive probe
 
