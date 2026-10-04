@@ -990,7 +990,20 @@ sudo /home/chanz22/Documents/GitHub/houston-pub/.venv/bin/python3 \
 ```
 
 The expected full sequence is `EVSRDY!!`, `EVSHASH!`, `EVSPARSE`, and
-`EVSPASS!`. Hardware validation is pending at this boundary.
+`EVSPASS!`. The 2026-10-04 hardware run completed that sequence. Verifier
+`0xc9a0` returned one with security status `0x10000006`, selector one, boot
+state `0xcb000041`, and verification status changing from `0x1f` to `0xdf`.
+This confirms the CryptoCell branch selected by the clear security-status bit
+7. The parsed size and checksum remained `0x3000` and `0xb82c55e7`, and the
+terminal record reported Secure EL3 (`CurrentEL = 0xc`). The saved 384-byte
+capture at `/tmp/exynos9825_epbl_verify_staged_probe.bin` has SHA-256
+`c4c43705ac582927382ef51d1151bb7563af9a01b269243847deb78798da4cb0`.
+
+This boundary is complete. It proves that the exact Binary 9 EPBL can be
+received, parsed, and authenticated through the matched stock routines. It
+does not yet prove that the volatile EPBL/FWBL1 state expected at the EPBL
+entry has been initialized, so the next probe must observe or reconstruct the
+stock post-verification setup before branching into EPBL.
 
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO

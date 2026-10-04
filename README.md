@@ -55,7 +55,7 @@ shown above.
 | `epbl_header_probe` | Relocates itself, receives Binary 9 EPBL at the stock BootROM destination, and invokes only the matched header parser | Hardware tested on SM-N975F. No `EPHRDY!!` record returned, so execution stopped before the receive checkpoint. |
 | `epbl_header_noic_probe` | Repeats the matched Binary 9 header-parser probe without the blocking EL3 I-cache operation | Hardware tested on SM-N975F. Relocation and EP2 rearm passed; USB disconnected during the EPBL host write. |
 | `epbl_header_staged_probe` | Separates exact EPBL reception and hash verification from the matched BootROM header-parser call | Hardware tested on SM-N975F. Exact reception and the stock header parser passed. |
-| `epbl_verify_staged_probe` | Runs the matched stock BootROM verifier only after separate receive, hash, and parser checkpoints | Locally validated. Hardware validation pending. |
+| `epbl_verify_staged_probe` | Runs the matched stock BootROM verifier only after separate receive, hash, and parser checkpoints | Hardware tested on SM-N975F. Exact reception, parsing, and the stock CryptoCell verification branch passed. |
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
@@ -533,6 +533,14 @@ that order. A capture ending at one checkpoint bounds the stop to the next
 single stage. Generic failure status `0x100` through `0x103` and `0x200`
 through `0x201` retain the staged receive and parser meanings; status `0x104`
 with `EVVFAIL!` identifies a verifier return other than one.
+
+The 2026-10-04 hardware run completed all four checkpoints. Verifier `0xc9a0`
+returned one with security status `0x10000006` and selector one, confirming
+the CryptoCell branch. The volatile verification status changed from `0x1f`
+to `0xdf`; the parsed size and checksum remained `0x3000` and `0xb82c55e7`,
+and the terminal record reported Secure EL3 (`CurrentEL = 0xc`). The saved
+384-byte capture at `/tmp/exynos9825_epbl_verify_staged_probe.bin` has SHA-256
+`c4c43705ac582927382ef51d1151bb7563af9a01b269243847deb78798da4cb0`.
 
 ### Same-session USB receive probe
 
