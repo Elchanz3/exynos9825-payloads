@@ -56,6 +56,7 @@ shown above.
 | `relocation_probe` | Separately verifies the worker copy and Secure EL3 execution at `0x02025000` | Hardware tested on SM-N975F. The copy passed, but no relocated-worker record returned. |
 | `relocation_fetch_probe` | Tests two Secure EL3 instructions at `0x02025000` and reports from the original Houston region | Hardware tested on SM-N975F. No result record returned. |
 | `relocation_fetch_control_probe` | Runs the same two-instruction test at `0x02024000` inside the reserved payload window | Hardware tested on SM-N975F. No result record returned. |
+| `icache_maintenance_probe` | Isolates the EL3 instruction-cache invalidation sequence without relocating code | Built and statically verified. Hardware validation is pending. |
 
 The non-secure port plan, reference address inventory, and current Binary 9
 reverse-engineering results are documented in
@@ -333,6 +334,23 @@ The hardware run on 2026-10-03 also returned zero records. The host therefore
 did not create the requested output file. Because both fetch probes execute
 `ic iallu` immediately before their indirect branch, cache maintenance must be
 tested without relocation before either address result can be interpreted.
+
+`icache_maintenance_probe` sends `ICHPRE!!`, executes `dsb sy`, `ic iallu`,
+`dsb sy`, and `isb` without branching away from the linked image, then sends
+`ICHPASS!`. Its private EL3 vector reports `ICHFAIL!` if the operation raises a
+synchronous exception.
+
+```sh
+sudo ../houston-pub/.venv/bin/python3 tools/boot_nonsecure_probe.py \
+    --houston-dir ../houston-pub \
+    --payload build/icache_maintenance_probe.bin \
+    --output /tmp/exynos9825_icache_maintenance_probe.bin \
+    --debug
+```
+
+Both `ICHPRE!!` and `ICHPASS!` are required for PASS. Receiving only
+`ICHPRE!!` isolates the stop to the cache-maintenance sequence or the first
+instruction fetch immediately after it.
 
 ### Same-session USB receive probe
 

@@ -37,6 +37,9 @@ RELOCATION_FETCH_PASS_MAGIC = b"RFXPASS!"
 RELOCATION_FETCH_FAIL_MAGIC = b"RFXFAIL!"
 RELOCATION_FETCH_CONTROL_PASS_MAGIC = b"RFCPASS!"
 RELOCATION_FETCH_CONTROL_FAIL_MAGIC = b"RFCFAIL!"
+ICACHE_PRE_MAGIC = b"ICHPRE!!"
+ICACHE_PASS_MAGIC = b"ICHPASS!"
+ICACHE_FAIL_MAGIC = b"ICHFAIL!"
 EPBL_STATE_MAGICS = {
     b"EPS0IRAM": 0x02020000,
     b"EPS1IRAM": 0x02020050,
@@ -175,6 +178,19 @@ RELOCATION_FETCH_FIELDS = (
     "copy size",
 )
 
+ICACHE_FIELDS = (
+    "status",
+    "ESR_EL3",
+    "FAR_EL3",
+    "ELR_EL3",
+    "SPSR_EL3",
+    "original VBAR_EL3",
+    "CurrentEL",
+    "SCTLR_EL3",
+    "before signature",
+    "after signature",
+)
+
 
 def decode_record(data: bytes):
     if len(data) != RECORD_SIZE:
@@ -230,6 +246,8 @@ def decode_record(data: bytes):
         RELOCATION_FETCH_CONTROL_FAIL_MAGIC,
     ):
         fields = RELOCATION_FETCH_FIELDS
+    elif magic in (ICACHE_PRE_MAGIC, ICACHE_PASS_MAGIC, ICACHE_FAIL_MAGIC):
+        fields = ICACHE_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
 
@@ -301,6 +319,27 @@ def decode_record(data: bytes):
         )
         print(f"ESR exception class  = 0x{ec:02x}")
         print(f"relocated fetch      = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic == ICACHE_PRE_MAGIC:
+        print("checkpoint            = before EL3 instruction-cache invalidation")
+        return None
+
+    if magic in (ICACHE_PASS_MAGIC, ICACHE_FAIL_MAGIC):
+        ec = (values[1] >> 26) & 0x3F
+        passed = (
+            magic == ICACHE_PASS_MAGIC
+            and values[0] == 1
+            and values[1] == 0
+            and values[2] == 0
+            and values[3] == 0
+            and values[4] == 0
+            and values[6] == 0xC
+            and values[8] == 0x45524F4645424349
+            and values[9] == 0x2152455446414349
+        )
+        print(f"ESR exception class  = 0x{ec:02x}")
+        print(f"I-cache maintenance  = {'PASS' if passed else 'FAIL'}")
         return passed
 
     if magic in (
@@ -477,6 +516,8 @@ def read_probe_records(device, usb_core) -> bytes:
             RELOCATION_FETCH_FAIL_MAGIC,
             RELOCATION_FETCH_CONTROL_PASS_MAGIC,
             RELOCATION_FETCH_CONTROL_FAIL_MAGIC,
+            ICACHE_PASS_MAGIC,
+            ICACHE_FAIL_MAGIC,
             b"EPS3IRAM",
         ):
             break

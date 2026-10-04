@@ -844,6 +844,14 @@ branch. That cache-maintenance sequence is now an independent unvalidated
 boundary and must be tested without relocation before assigning the stop to
 either target address.
 
+`icache_maintenance_probe` now isolates that boundary while remaining in the
+original Houston-linked image. It first sends `ICHPRE!!`, then executes only
+`dsb sy`, `ic iallu`, `dsb sy`, and `isb`, records a second signature, and
+sends `ICHPASS!`. A private EL3 vector reports `ICHFAIL!` with the architectural
+exception state if a synchronous exception is taken. The probe performs no
+relocation, indirect branch, BootROM call, Samsung-stage operation, MMIO write,
+or persistent-storage access. Hardware validation is pending.
+
 The following reference features are intentionally excluded unless later
 evidence proves they are required and safe: Exynos990/9810 PMU and GPIO
 writes, CryptoCell pointer tables, secure-boot flag patches, decrypted-image
