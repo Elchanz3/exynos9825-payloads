@@ -20,3 +20,7 @@ iram_*.bin
 .idea/
 *~
 .DS_Store
+
+# signing keys (never commit private keys)
+*.pem
+keys/

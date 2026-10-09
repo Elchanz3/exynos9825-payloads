@@ -12,10 +12,15 @@ PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
 	epbl_receive_probe epbl_state_probe epbl_header_probe \
 	epbl_header_noic_probe epbl_header_staged_probe epbl_verify_staged_probe \
 	epbl_postload_staged_probe epbl_entry_staged_probe epbl_mmio_staged_probe \
-	epbl_mmio_trap_staged_probe epbl_dispatch_staged_probe \
+	epbl_mmio_trap_staged_probe epbl_mmio_trap_noic_staged_probe \
+	epbl_abort_context_staged_probe epbl_cold_context_staged_probe \
+	epbl_dump_fwbl1_probe epbl_bypass_probe epbl_verify_diag_probe epbl_bootstate_probe epbl_sboot_noverify_probe \
+	epbl_fwbl1_boundary_staged_probe \
+	epbl_dispatch_staged_probe \
 	relocation_probe \
 	relocation_fetch_probe relocation_fetch_control_probe \
-	relocation_fetch_noic_probe icache_maintenance_probe icache_target_probe
+	relocation_fetch_noic_probe icache_maintenance_probe icache_target_probe \
+	icache_disable_relocated_probe
 
 CPPFLAGS := -Iinclude
 ASFLAGS  := -ffreestanding -fno-pic -fno-pie -march=armv8-a
@@ -50,13 +55,23 @@ DISASMS    := $(PAYLOADS:%=$(BUILD_DIR)/%.disasm)
 	$(BUILD_DIR)/payloads/epbl_entry_staged_probe.o \
 	$(BUILD_DIR)/payloads/epbl_mmio_staged_probe.o \
 	$(BUILD_DIR)/payloads/epbl_mmio_trap_staged_probe.o \
+	$(BUILD_DIR)/payloads/epbl_mmio_trap_noic_staged_probe.o \
+	$(BUILD_DIR)/payloads/epbl_abort_context_staged_probe.o \
+	$(BUILD_DIR)/payloads/epbl_cold_context_staged_probe.o \
+	$(BUILD_DIR)/payloads/epbl_dump_fwbl1_probe.o \
+	$(BUILD_DIR)/payloads/epbl_bypass_probe.o \
+	$(BUILD_DIR)/payloads/epbl_verify_diag_probe.o \
+	$(BUILD_DIR)/payloads/epbl_bootstate_probe.o \
+	$(BUILD_DIR)/payloads/epbl_sboot_noverify_probe.o \
+	$(BUILD_DIR)/payloads/epbl_fwbl1_boundary_staged_probe.o \
 	$(BUILD_DIR)/payloads/epbl_dispatch_staged_probe.o \
 	$(BUILD_DIR)/payloads/relocation_probe.o \
 	$(BUILD_DIR)/payloads/relocation_fetch_probe.o \
 	$(BUILD_DIR)/payloads/relocation_fetch_control_probe.o \
 	$(BUILD_DIR)/payloads/relocation_fetch_noic_probe.o \
 	$(BUILD_DIR)/payloads/icache_maintenance_probe.o \
-	$(BUILD_DIR)/payloads/icache_target_probe.o $(COMMON_OBJ)
+	$(BUILD_DIR)/payloads/icache_target_probe.o \
+	$(BUILD_DIR)/payloads/icache_disable_relocated_probe.o $(COMMON_OBJ)
 
 .PHONY: all clean disasm verify
 
@@ -123,6 +138,58 @@ $(BUILD_DIR)/payloads/epbl_mmio_trap_staged_probe.o: \
 	payloads/epbl_header_probe.S
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_MMIO_TRAP_STAGED -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_mmio_trap_noic_staged_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_MMIO_TRAP_STAGED \
+		-DEPBL_DISABLE_ICACHE -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_abort_context_staged_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_ABORT_CONTEXT_STAGED -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_cold_context_staged_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED \
+		-DEPBL_DISABLE_ICACHE -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_dump_fwbl1_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED \
+		-DEPBL_DISABLE_ICACHE -DEPBL_DUMP_FWBL1 -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_bypass_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED \
+		-DEPBL_DISABLE_ICACHE -DEPBL_PATCH_VERIFY -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_verify_diag_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED \
+		-DEPBL_DISABLE_ICACHE -DEPBL_VERIFY_DIAG -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_bootstate_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_DUMP_FWBL1 -DPROBE_DUMP_BASE=0x02020000 -DPROBE_DUMP_SIZE=0x00000200 -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_sboot_noverify_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_SBOOT_NOVERIFY -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_fwbl1_boundary_staged_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_FWBL1_BOUNDARY_STAGED -c $< -o $@
 
 $(BUILD_DIR)/payloads/epbl_dispatch_staged_probe.o: \
 	payloads/epbl_header_probe.S
@@ -237,6 +304,51 @@ $(BUILD_DIR)/epbl_mmio_trap_staged_probe.elf: \
 	arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 
+$(BUILD_DIR)/epbl_mmio_trap_noic_staged_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_mmio_trap_noic_staged_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_abort_context_staged_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_abort_context_staged_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_cold_context_staged_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_cold_context_staged_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_dump_fwbl1_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_dump_fwbl1_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_bypass_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_bypass_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_verify_diag_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_verify_diag_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_bootstate_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_bootstate_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_sboot_noverify_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_sboot_noverify_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_fwbl1_boundary_staged_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_fwbl1_boundary_staged_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
 $(BUILD_DIR)/epbl_dispatch_staged_probe.elf: \
 	$(BUILD_DIR)/payloads/epbl_dispatch_staged_probe.o \
 	arch/arm64/payload.ld
@@ -270,6 +382,11 @@ $(BUILD_DIR)/icache_maintenance_probe.elf: \
 $(BUILD_DIR)/icache_target_probe.elf: \
 	$(BUILD_DIR)/payloads/icache_target_probe.o \
 	$(COMMON_OBJ) arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/icache_disable_relocated_probe.elf: \
+	$(BUILD_DIR)/payloads/icache_disable_relocated_probe.o \
+	arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 
 $(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf

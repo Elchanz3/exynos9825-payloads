@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import struct
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -75,6 +76,27 @@ EPBL_MMIO_TRAP_STAGED_FAIL_MAGIC = b"EPTFAIL!"
 EPBL_MMIO_TRAP_STAGED_VERIFY_FAIL_MAGIC = b"EPTVFAIL"
 EPBL_MMIO_TRAP_STAGED_POSTLOAD_FAIL_MAGIC = b"EPTPFAIL"
 EPBL_MMIO_TRAP_STAGED_FINALIZE_FAIL_MAGIC = b"EPTFFAIL"
+EPBL_ABORT_CONTEXT_STAGED_READY_MAGIC = b"EPARDY!!"
+EPBL_ABORT_CONTEXT_STAGED_PASS_MAGIC = b"EPAPASS!"
+EPBL_ABORT_CONTEXT_STAGED_TRAP_MAGIC = b"EPATRAP!"
+EPBL_ABORT_CONTEXT_STAGED_FAIL_MAGIC = b"EPAFAIL!"
+EPBL_ABORT_CONTEXT_STAGED_VERIFY_FAIL_MAGIC = b"EPAVFAIL"
+EPBL_ABORT_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC = b"EPAPFAIL"
+EPBL_ABORT_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC = b"EPAFFAIL"
+EPBL_COLD_CONTEXT_STAGED_READY_MAGIC = b"EPCRDY!!"
+EPBL_COLD_CONTEXT_STAGED_PASS_MAGIC = b"EPCPASS!"
+EPBL_COLD_CONTEXT_STAGED_TRAP_MAGIC = b"EPCTRAP!"
+EPBL_COLD_CONTEXT_STAGED_FAIL_MAGIC = b"EPCFAIL!"
+EPBL_COLD_CONTEXT_STAGED_VERIFY_FAIL_MAGIC = b"EPCVFAIL"
+EPBL_COLD_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC = b"EPCPFAIL"
+EPBL_COLD_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC = b"EPCFFAIL"
+EPBL_FWBL1_BOUNDARY_STAGED_READY_MAGIC = b"EPFRDY!!"
+EPBL_FWBL1_BOUNDARY_STAGED_PASS_MAGIC = b"EPFPASS!"
+EPBL_FWBL1_BOUNDARY_STAGED_TRAP_MAGIC = b"EPFTRAP!"
+EPBL_FWBL1_BOUNDARY_STAGED_FAIL_MAGIC = b"EPFFAIL!"
+EPBL_FWBL1_BOUNDARY_STAGED_VERIFY_FAIL_MAGIC = b"EPFVFAIL"
+EPBL_FWBL1_BOUNDARY_STAGED_POSTLOAD_FAIL_MAGIC = b"EPFPFAIL"
+EPBL_FWBL1_BOUNDARY_STAGED_FINALIZE_FAIL_MAGIC = b"EPFFFAIL"
 EPBL_DISPATCH_STAGED_READY_MAGIC = b"EPDRDY!!"
 EPBL_DISPATCH_STAGED_PASS_MAGIC = b"EPDPASS!"
 EPBL_DISPATCH_STAGED_FAIL_MAGIC = b"EPDFAIL!"
@@ -97,6 +119,8 @@ ICACHE_FAIL_MAGIC = b"ICHFAIL!"
 ICACHE_TARGET_PRE_MAGIC = b"ICTPRE!!"
 ICACHE_TARGET_PASS_MAGIC = b"ICTPASS!"
 ICACHE_TARGET_FAIL_MAGIC = b"ICTFAIL!"
+ICACHE_DISABLE_PRE_MAGIC = b"ICDPRE!!"
+ICACHE_DISABLE_PASS_MAGIC = b"ICDPASS!"
 EPBL_STATE_MAGICS = {
     b"EPS0IRAM": 0x02020000,
     b"EPS1IRAM": 0x02020050,
@@ -105,6 +129,8 @@ EPBL_STATE_MAGICS = {
 }
 RX_PATTERN = bytes(range(0x40))
 RECORD_SIZE = 0x60
+DUMP_MAGIC = b"EPDUMP!!"
+USB_CAPTURE_SIZE = 0x4000
 EL3_FIELDS = (
     "CurrentEL",
     "SCR_EL3",
@@ -274,6 +300,84 @@ EPBL_MMIO_TRAP_FIELDS = (
     "CurrentEL",
 )
 
+EPBL_ABORT_CONTEXT_FIELDS = (
+    "status",
+    "ESR_EL3",
+    "FAR_EL3",
+    "ELR_EL3",
+    "SPSR_EL3",
+    "link register x30",
+    "stack pointer",
+    "EPBL x8",
+    "EPBL x9",
+    "EPBL x22",
+)
+
+EPBL_FWBL1_BOUNDARY_TRAP_FIELDS = (
+    "status",
+    "ESR_EL3",
+    "FAR_EL3",
+    "ELR_EL3",
+    "SPSR_EL3",
+    "link register x30",
+    "dispatch literal value",
+    "dispatch state 0x02020128",
+    "redirect slot address",
+    "redirect slot value",
+)
+
+EPBL_COLD_CONTEXT_TRAP_FIELDS = (
+    "status",
+    "ESR_EL3",
+    "FAR_EL3",
+    "ELR_EL3",
+    "SPSR_EL3",
+    "link register x30",
+    "dispatch literal value",
+    "dispatch state 0x02020128",
+    "shim entry x4",
+    "x12 at exception",
+)
+
+EPBL_ABORT_CONTEXT_READY_FIELDS = (
+    "receive helper return",
+    "ENDTRANSFER return",
+    "software event index before repair",
+    "software event index after arm",
+    "EP2 transfer resource index",
+    "DWC3 GEVNTCOUNT0",
+    "DWC3 DSTS",
+    "DWC3 DALEPENA",
+    "EP2 OUT DEPCMD",
+    "BootROM TRB control",
+)
+
+EPBL_CONTEXT_SETUP_FAILURE_FIELDS = (
+    "status",
+    "last ENDTRANSFER return",
+    "software event index before repair",
+    "software event index after arm",
+    "EP2 transfer resource index",
+    "DWC3 GEVNTCOUNT0",
+    "DWC3 DSTS",
+    "DWC3 DALEPENA",
+    "EP2 OUT DEPCMD",
+    "BootROM TRB control",
+)
+
+EPBL_FWBL1_BOUNDARY_FIELDS = (
+    "status",
+    "controlled branch target",
+    "observed dispatch state 0x02020128",
+    "EPBL dispatch literal site",
+    "original dispatch literal",
+    "patched dispatch literal",
+    "redirect slot value",
+    "FWBL1 first qword after parse",
+    "FWBL1 second qword",
+    "CurrentEL",
+)
+
 EPBL_DISPATCH_FIELDS = (
     "status",
     "post-load return",
@@ -339,6 +443,19 @@ ICACHE_TARGET_FIELDS = (
     "after signature",
 )
 
+ICACHE_DISABLE_FIELDS = (
+    "status",
+    "CurrentEL before",
+    "SCTLR_EL3 before",
+    "CurrentEL after",
+    "relocation address",
+    "SCTLR_EL3 after",
+    "reserved 0",
+    "reserved 1",
+    "reserved 2",
+    "reserved 3",
+)
+
 
 def decode_record(data: bytes):
     if len(data) != RECORD_SIZE:
@@ -376,6 +493,18 @@ def decode_record(data: bytes):
     elif magic in (EPBL_READY_MAGIC, EPBL_PASS_MAGIC, EPBL_FAIL_MAGIC):
         fields = EPBL_FIELDS
     elif magic in (
+        EPBL_ABORT_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_FAIL_MAGIC,
+    ) and struct.unpack_from("<Q", data, 0x10)[0] in (0x200, 0x201, 0x202):
+        fields = EPBL_CONTEXT_SETUP_FAILURE_FIELDS
+    elif magic in (
+        EPBL_ABORT_CONTEXT_STAGED_READY_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_READY_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_READY_MAGIC,
+    ):
+        fields = EPBL_ABORT_CONTEXT_READY_FIELDS
+    elif magic in (
         EPBL_HEADER_READY_MAGIC,
         EPBL_HEADER_PASS_MAGIC,
         EPBL_HEADER_FAIL_MAGIC,
@@ -403,6 +532,17 @@ def decode_record(data: bytes):
         EPBL_MMIO_STAGED_FAIL_MAGIC,
         EPBL_MMIO_TRAP_STAGED_READY_MAGIC,
         EPBL_MMIO_TRAP_STAGED_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_PASS_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_PASS_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_FAIL_MAGIC,
         EPBL_DISPATCH_STAGED_READY_MAGIC,
         EPBL_DISPATCH_STAGED_FAIL_MAGIC,
     ):
@@ -410,6 +550,7 @@ def decode_record(data: bytes):
     elif magic in (
         EPBL_VERIFY_STAGED_PASS_MAGIC,
         EPBL_VERIFY_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_VERIFY_FAIL_MAGIC,
     ):
         fields = EPBL_VERIFY_FIELDS
     elif magic in (
@@ -418,6 +559,7 @@ def decode_record(data: bytes):
         EPBL_POSTLOAD_STAGED_POSTLOAD_FAIL_MAGIC,
         EPBL_ENTRY_STAGED_VERIFIED_MAGIC,
         EPBL_ENTRY_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_POSTLOAD_FAIL_MAGIC,
     ):
         fields = EPBL_POSTLOAD_FIELDS
     elif magic in (
@@ -440,6 +582,19 @@ def decode_record(data: bytes):
         fields = EPBL_MMIO_FIELDS
     elif magic == EPBL_MMIO_TRAP_STAGED_TRAP_MAGIC:
         fields = EPBL_MMIO_TRAP_FIELDS
+    elif magic in (
+        EPBL_ABORT_CONTEXT_STAGED_TRAP_MAGIC,
+    ):
+        fields = EPBL_ABORT_CONTEXT_FIELDS
+    elif magic == EPBL_COLD_CONTEXT_STAGED_TRAP_MAGIC:
+        fields = EPBL_COLD_CONTEXT_TRAP_FIELDS
+    elif magic == EPBL_FWBL1_BOUNDARY_STAGED_TRAP_MAGIC:
+        fields = EPBL_FWBL1_BOUNDARY_TRAP_FIELDS
+    elif magic in (
+        EPBL_FWBL1_BOUNDARY_STAGED_PASS_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_FINALIZE_FAIL_MAGIC,
+    ):
+        fields = EPBL_FWBL1_BOUNDARY_FIELDS
     elif magic == EPBL_MMIO_STAGED_VERIFY_FAIL_MAGIC:
         fields = EPBL_VERIFY_FIELDS
     elif magic == EPBL_MMIO_TRAP_STAGED_VERIFY_FAIL_MAGIC:
@@ -482,6 +637,11 @@ def decode_record(data: bytes):
         ICACHE_TARGET_FAIL_MAGIC,
     ):
         fields = ICACHE_TARGET_FIELDS
+    elif magic in (
+        ICACHE_DISABLE_PRE_MAGIC,
+        ICACHE_DISABLE_PASS_MAGIC,
+    ):
+        fields = ICACHE_DISABLE_FIELDS
     else:
         raise ValueError(f"unexpected magic {magic!r}")
 
@@ -599,6 +759,32 @@ def decode_record(data: bytes):
         print("checkpoint            = before targeted I-cache invalidation")
         return None
 
+    if magic == ICACHE_DISABLE_PRE_MAGIC:
+        print(
+            "checkpoint            = "
+            "relocated worker running; before SCTLR_EL3.I clear"
+        )
+        return None
+
+    if magic == ICACHE_DISABLE_PASS_MAGIC:
+        before = values[2]
+        after = values[5]
+
+        passed = (
+            values[0] == 1
+            and values[1] == 0xC
+            and values[3] == 0xC
+            and values[4] == 0x02025000
+            and (before & 0x1000) != 0
+            and after == (before & ~0x1000)
+        )
+
+        print(
+            f"I-cache disable       = "
+            f"{'PASS' if passed else 'FAIL'}"
+        )
+        return passed
+
     if magic in (ICACHE_TARGET_PASS_MAGIC, ICACHE_TARGET_FAIL_MAGIC):
         ec = (values[1] >> 26) & 0x3F
         passed = (
@@ -628,8 +814,62 @@ def decode_record(data: bytes):
         EPBL_ENTRY_STAGED_READY_MAGIC,
         EPBL_MMIO_STAGED_READY_MAGIC,
         EPBL_MMIO_TRAP_STAGED_READY_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_READY_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_READY_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_READY_MAGIC,
         EPBL_DISPATCH_STAGED_READY_MAGIC,
     ):
+        if magic in (
+            EPBL_ABORT_CONTEXT_STAGED_READY_MAGIC,
+            EPBL_COLD_CONTEXT_STAGED_READY_MAGIC,
+            EPBL_FWBL1_BOUNDARY_STAGED_READY_MAGIC,
+        ):
+            depcmd_active = (values[8] & (1 << 10)) != 0
+            depcmd_status = (values[8] >> 12) & 0xF
+            depcmd_resource = (values[8] >> 16) & 0x7F
+            link_state = (values[6] >> 18) & 0xF
+            controller_halted = (values[6] & (1 << 22)) != 0
+            core_idle = (values[6] & (1 << 23)) != 0
+            physical_ep4_enabled = (values[7] & (1 << 4)) != 0
+            trb_hardware_owned = (values[9] & 1) != 0
+            resource_allocated = (
+                values[4] != 0
+                and depcmd_resource == values[4]
+            )
+            arm_state_passed = (
+                values[0] == 1
+                and values[1] == 1
+                and resource_allocated
+                and not depcmd_active
+                and depcmd_status == 0
+                and not controller_halted
+                and physical_ep4_enabled
+                and trb_hardware_owned
+            )
+            print(
+                "EP2 transfer resource = "
+                f"{'ALLOCATED' if resource_allocated else 'MISSING'}"
+            )
+            print(f"EP2 DEPCMD status    = 0x{depcmd_status:x}")
+            print(f"DWC3 USB link state = 0x{link_state:x}")
+            print(
+                "DWC3 controller halted = "
+                f"{'YES' if controller_halted else 'NO'}"
+            )
+            print(f"DWC3 core idle       = {'YES' if core_idle else 'NO'}")
+            print(f"DWC3 pending events  = 0x{values[5]:x} bytes")
+            print(
+                "physical EP4 enabled = "
+                f"{'YES' if physical_ep4_enabled else 'NO'}"
+            )
+            print(
+                "TRB hardware ownership = "
+                f"{'YES' if trb_hardware_owned else 'NO'}"
+            )
+            print(
+                "EP2 OUT activation    = "
+                f"{'PASS' if arm_state_passed else 'FAIL'}"
+            )
         checkpoint = {
             EPBL_DISPATCH_STAGED_READY_MAGIC:
                 "staged dispatch probe armed EP2 OUT at the stock EPBL destination",
@@ -637,6 +877,12 @@ def decode_record(data: bytes):
                 "staged MMIO probe armed EP2 OUT at the stock EPBL destination",
             EPBL_MMIO_TRAP_STAGED_READY_MAGIC:
                 "staged MMIO trap probe armed EP2 OUT at the stock EPBL destination",
+            EPBL_ABORT_CONTEXT_STAGED_READY_MAGIC:
+                "receive helper returned; post-arm EP2 OUT state captured",
+            EPBL_COLD_CONTEXT_STAGED_READY_MAGIC:
+                "cold-path probe armed EP2 OUT for the initial EPBL",
+            EPBL_FWBL1_BOUNDARY_STAGED_READY_MAGIC:
+                "cold EPBL armed for FWBL1 boundary capture",
             EPBL_ENTRY_STAGED_READY_MAGIC:
                 "staged entry probe armed EP2 OUT at the stock EPBL destination",
             EPBL_POSTLOAD_STAGED_READY_MAGIC:
@@ -655,6 +901,19 @@ def decode_record(data: bytes):
         }[magic]
         print(f"checkpoint            = {checkpoint}")
         return None
+
+    if magic in (
+        EPBL_ABORT_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_FAIL_MAGIC,
+    ) and values[0] in (0x200, 0x201, 0x202):
+        setup_failure = {
+            0x200: "ENDTRANSFER command failed",
+            0x201: "stale EP2 TRB did not clear",
+            0x202: "EP2 STARTTRANSFER event timed out after 8 attempts",
+        }[values[0]]
+        print(f"receive setup failure = {setup_failure}")
+        return False
 
     if magic == RX_EVENT_MAGIC:
         passed = values[0] == 1
@@ -982,22 +1241,142 @@ def decode_record(data: bytes):
 
     if magic == EPBL_MMIO_TRAP_STAGED_TRAP_MAGIC:
         ec = (values[1] >> 26) & 0x3F
-        trapped_at_mmio = (
+        capture_passed = (
             values[0] == 0x107
-            and ec == 0x25
-            and values[2] == 0x15860990
-            and values[3] == 0x0202201C
+            and ec in (0x24, 0x25)
             and values[6] == 0x15860990
             and values[7] == 0x02022020
             and (values[8] & 0x00800000) != 0
             and values[9] == 0xC
         )
-        print(f"ESR exception class  = 0x{ec:02x}")
-        print(
-            "MMIO exception capture = "
-            f"{'PASS' if trapped_at_mmio else 'FAIL'}"
+        targeted_mmio = (
+            values[2] == 0x15860990 and values[3] == 0x0202201C
         )
-        return trapped_at_mmio
+        print(f"ESR exception class  = 0x{ec:02x}")
+        print(f"EL3 exception capture = {'PASS' if capture_passed else 'FAIL'}")
+        print(f"targeted MMIO fault  = {'YES' if targeted_mmio else 'NO'}")
+        return capture_passed
+
+    if magic in (
+        EPBL_ABORT_CONTEXT_STAGED_TRAP_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_TRAP_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_TRAP_MAGIC,
+    ):
+        ec = (values[1] >> 26) & 0x3F
+        il = (values[1] >> 25) & 1
+        iss = values[1] & 0x01FFFFFF
+        wnr = (iss >> 6) & 1
+        dfsc = iss & 0x3F
+        elr_in_epbl = 0x02022000 <= values[3] < 0x02025000
+        lr_in_epbl = 0x02022000 <= values[5] < 0x02025000
+        lr_in_worker = 0x02025000 <= values[5] < 0x02025800
+        if magic in (
+            EPBL_COLD_CONTEXT_STAGED_TRAP_MAGIC,
+            EPBL_FWBL1_BOUNDARY_STAGED_TRAP_MAGIC,
+        ):
+            capture_passed = (
+                values[0] == 0x108
+                and (values[4] & 0xF) == 0xD
+                and 0x02022000 <= values[5] < 0x02025800
+            )
+        else:
+            capture_passed = (
+                values[0] == 0x108
+                and (values[4] & 0xF) == 0xD
+                and (values[6] & 0xF) == 0
+            )
+        print(f"ESR exception class  = 0x{ec:02x}")
+        print(f"instruction length   = {32 if il else 16} bits")
+        print(f"ELR inside EPBL      = {'YES' if elr_in_epbl else 'NO'}")
+        print(f"x30 inside EPBL      = {'YES' if lr_in_epbl else 'NO'}")
+        print(
+            "x30 inside relocated worker = "
+            f"{'YES' if lr_in_worker else 'NO'}"
+        )
+        if lr_in_epbl:
+            print(f"probable EPBL call site = 0x{values[5] - 4:016x}")
+        elif lr_in_worker:
+            print(f"probable worker call site = 0x{values[5] - 4:016x}")
+        if ec in (0x24, 0x25):
+            print(f"abort access         = {'write' if wnr else 'read'}")
+            print(f"data fault status    = 0x{dfsc:02x}")
+        elif ec == 0x22:
+            print("exception syndrome   = PC alignment fault")
+            if magic == EPBL_FWBL1_BOUNDARY_STAGED_TRAP_MAGIC:
+                print(
+                    "literal redirect retained = "
+                    f"{'YES' if values[6] == values[8] else 'NO'}"
+                )
+            if magic == EPBL_FWBL1_BOUNDARY_STAGED_TRAP_MAGIC:
+                print(
+                    "redirected slot target = "
+                    f"0x{(values[9] + 0x10) & 0xffffffffffffffff:016x}"
+                )
+        elif ec == 0:
+            print("exception syndrome   = uncategorized")
+        if magic == EPBL_COLD_CONTEXT_STAGED_TRAP_MAGIC:
+            # Field 8 holds x4 as stored by the first shim instruction.
+            if values[8] == 0:
+                print("FWBL1 shim reached    = NO (fault before the shim)")
+                if values[3] == values[9]:
+                    print("ELR equals x12        = YES (stale stager branch)")
+            else:
+                print("FWBL1 shim reached    = YES")
+                print(
+                    "shim x4 as expected   = "
+                    f"{'YES' if values[8] == 0x02025610 else 'NO'}"
+                )
+        label = {
+            EPBL_COLD_CONTEXT_STAGED_TRAP_MAGIC:
+                "cold-path context capture",
+            EPBL_FWBL1_BOUNDARY_STAGED_TRAP_MAGIC:
+                "FWBL1-boundary capture",
+        }.get(magic, "EPBL context capture")
+        print(f"{label:21} = {'PASS' if capture_passed else 'FAIL'}")
+        return capture_passed
+
+    if magic in (
+        EPBL_FWBL1_BOUNDARY_STAGED_PASS_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_FINALIZE_FAIL_MAGIC,
+    ):
+        redirected_target = (values[6] + 0x10) & 0xFFFFFFFFFFFFFFFF
+        passed = (
+            magic == EPBL_FWBL1_BOUNDARY_STAGED_PASS_MAGIC
+            and values[0] == 1
+            and values[1] == redirected_target
+            and values[3] == 0x02022098
+            and values[4] == 0x02020128
+            and 0x02025000 <= values[5] < 0x02025800
+            and values[5] != values[4]
+            and values[7] == 0x0000000000000098
+            and values[8] == 0x0000000068656164
+            and values[9] == 0xC
+        )
+        print(f"redirected target     = 0x{redirected_target:016x}")
+        print(f"FWBL1 boundary       = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic in (
+        EPBL_ABORT_CONTEXT_STAGED_PASS_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_PASS_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC,
+    ):
+        passed = (
+            magic in (
+                EPBL_ABORT_CONTEXT_STAGED_PASS_MAGIC,
+                EPBL_COLD_CONTEXT_STAGED_PASS_MAGIC,
+            )
+            and values[0] == 1
+        )
+        print(f"EPBL execution       = {'PASS' if passed else 'FAIL'}")
+        return passed
 
     if magic in (
         EPBL_DISPATCH_STAGED_PASS_MAGIC,
@@ -1104,26 +1483,111 @@ def claim_device(device, usb_core, usb_util) -> None:
     usb_util.claim_interface(device, 0)
 
 
+def find_probe_record(data: bytes):
+    header = struct.pack("<II", 1, RECORD_SIZE)
+
+    for offset in range(0, len(data) - RECORD_SIZE + 1):
+        magic = data[offset:offset + 8]
+        if (
+            data[offset + 8:offset + 16] == header
+            and all(0x21 <= value <= 0x5A for value in magic)
+        ):
+            return offset, data[offset:offset + RECORD_SIZE]
+
+    return None
+
+
+def report_non_probe_usb_data(data: bytes) -> None:
+    shown = data[:0x200]
+    print(
+        "Observed non-probe EP1 IN data: "
+        f"size=0x{len(data):x}, SHA-256={hashlib.sha256(data).hexdigest()}",
+        file=sys.stderr,
+    )
+    for offset in range(0, len(shown), 16):
+        chunk = shown[offset:offset + 16]
+        print(
+            f"  {offset:04x}: " + " ".join(f"{value:02x}" for value in chunk),
+            file=sys.stderr,
+        )
+    if len(shown) != len(data):
+        print(
+            f"  ... 0x{len(data) - len(shown):x} additional bytes omitted",
+            file=sys.stderr,
+        )
+
+
+class Ep1ChainReader(threading.Thread):
+    """Collect every EP1 IN transfer while the main thread writes stages."""
+
+    def __init__(self, device, usb_core, timing_origin):
+        super().__init__(daemon=True)
+        self.device = device
+        self.usb_core = usb_core
+        self.origin = timing_origin or time.monotonic()
+        self.stop_event = threading.Event()
+        self.chunks = []
+        self.error = None
+
+    def run(self):
+        while not self.stop_event.is_set():
+            try:
+                chunk = bytes(
+                    self.device.read(0x81, USB_CAPTURE_SIZE, timeout=200)
+                )
+            except self.usb_core.USBTimeoutError:
+                continue
+            except self.usb_core.USBError as error:
+                self.error = error
+                break
+            if chunk:
+                self.chunks.append((time.monotonic() - self.origin, chunk))
+
+    def finish(self, listen_seconds):
+        """Listen a little longer, then report text and any probe records."""
+        self.join(listen_seconds)
+        self.stop_event.set()
+        self.join(1.0)
+        records = []
+        for elapsed, chunk in self.chunks:
+            found = find_probe_record(chunk)
+            if found is not None:
+                records.append(found[1])
+                print(f"[{elapsed:7.3f}s] probe record {found[1][:8]!r}")
+                continue
+            text = chunk.rstrip(b"\0").decode("ascii", "replace")
+            print(f"[{elapsed:7.3f}s] EP1 IN 0x{len(chunk):x}: {text!r}")
+        if self.error is not None:
+            print(f"EP1 IN reader stopped: {self.error}", file=sys.stderr)
+        return records
+
+
 def read_probe_record(device, usb_core) -> bytes:
-    received = bytearray()
     deadline = time.monotonic() + 5.0
 
-    while len(received) < RECORD_SIZE and time.monotonic() < deadline:
+    while time.monotonic() < deadline:
         try:
-            chunk = bytes(
-                device.read(
-                    0x81,
-                    RECORD_SIZE - len(received),
-                    timeout=500,
-                )
-            )
+            chunk = bytes(device.read(0x81, USB_CAPTURE_SIZE, timeout=500))
         except usb_core.USBTimeoutError:
             continue
 
-        if chunk:
-            received.extend(chunk)
+        if not chunk:
+            continue
 
-    return bytes(received)
+        found = find_probe_record(chunk)
+        if found is not None:
+            offset, record = found
+            if offset or len(chunk) != RECORD_SIZE:
+                if offset:
+                    report_non_probe_usb_data(chunk[:offset])
+                trailing = chunk[offset + RECORD_SIZE:]
+                if trailing:
+                    report_non_probe_usb_data(trailing)
+            return record
+
+        report_non_probe_usb_data(chunk)
+
+    return b""
 
 
 def read_probe_records(device, usb_core) -> bytes:
@@ -1176,6 +1640,24 @@ def read_probe_records(device, usb_core) -> bytes:
             EPBL_MMIO_TRAP_STAGED_VERIFY_FAIL_MAGIC,
             EPBL_MMIO_TRAP_STAGED_POSTLOAD_FAIL_MAGIC,
             EPBL_MMIO_TRAP_STAGED_FINALIZE_FAIL_MAGIC,
+            EPBL_ABORT_CONTEXT_STAGED_PASS_MAGIC,
+            EPBL_ABORT_CONTEXT_STAGED_TRAP_MAGIC,
+            EPBL_ABORT_CONTEXT_STAGED_FAIL_MAGIC,
+            EPBL_ABORT_CONTEXT_STAGED_VERIFY_FAIL_MAGIC,
+            EPBL_ABORT_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC,
+            EPBL_ABORT_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC,
+            EPBL_COLD_CONTEXT_STAGED_PASS_MAGIC,
+            EPBL_COLD_CONTEXT_STAGED_TRAP_MAGIC,
+            EPBL_COLD_CONTEXT_STAGED_FAIL_MAGIC,
+            EPBL_COLD_CONTEXT_STAGED_VERIFY_FAIL_MAGIC,
+            EPBL_COLD_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC,
+            EPBL_COLD_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC,
+            EPBL_FWBL1_BOUNDARY_STAGED_PASS_MAGIC,
+            EPBL_FWBL1_BOUNDARY_STAGED_TRAP_MAGIC,
+            EPBL_FWBL1_BOUNDARY_STAGED_FAIL_MAGIC,
+            EPBL_FWBL1_BOUNDARY_STAGED_VERIFY_FAIL_MAGIC,
+            EPBL_FWBL1_BOUNDARY_STAGED_POSTLOAD_FAIL_MAGIC,
+            EPBL_FWBL1_BOUNDARY_STAGED_FINALIZE_FAIL_MAGIC,
             RELOCATION_PASS_MAGIC,
             RELOCATION_FAIL_MAGIC,
             RELOCATION_FETCH_PASS_MAGIC,
@@ -1188,6 +1670,7 @@ def read_probe_records(device, usb_core) -> bytes:
             ICACHE_FAIL_MAGIC,
             ICACHE_TARGET_PASS_MAGIC,
             ICACHE_TARGET_FAIL_MAGIC,
+            ICACHE_DISABLE_PASS_MAGIC,
             b"EPS3IRAM",
         ):
             break
@@ -1199,6 +1682,15 @@ def make_dnw_frame(payload: bytes) -> bytes:
     total = len(payload) + 10
     frame = bytearray(total)
     struct.pack_into("<4sI", frame, 0, b"\x1bDNW", total)
+    frame[8:-2] = payload
+    struct.pack_into("<H", frame, total - 2, sum(payload) & 0xFFFF)
+    return bytes(frame)
+
+
+def make_binary9_stage_frame(payload: bytes) -> bytes:
+    total = len(payload) + 10
+    frame = bytearray(total)
+    struct.pack_into("<II", frame, 0, 0xFFFFFFFE, total)
     frame[8:-2] = payload
     struct.pack_into("<H", frame, total - 2, sum(payload) & 0xFFFF)
     return bytes(frame)
@@ -1220,8 +1712,135 @@ def load_binary9_epbl(path: Path) -> bytes:
     return transfer
 
 
-def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
+BINARY9_FOLLOWUP_STAGES = (
+    (
+        "FWBL1",
+        0x13000,
+        "34da240b4f91319d3151c32577c57f308ff2b76d4ad6ae2a6b19de88f15f12ee",
+    ),
+    (
+        "BL2",
+        0x52000,
+        "f7bb1492737382bb23c8c9511f461fe0b5a5a87d923c5a20573731a4d522aa8c",
+    ),
+    (
+        "sboot",
+        0x180000,
+        "501ae58a701478345e751db2937f6a8e667ee64f721b2a72063b538213044b87",
+    ),
+    (
+        "EL3 monitor",
+        0x40000,
+        "b79e2d6c23ec9c5a5aaba7f44c26ffcbad573a002ad01095c20bd14f3817c6c2",
+    ),
+)
+
+# Accepted non-stock variants, keyed by stage name. The testkey sboot is the
+# stock image with the 0x167c SMC query patched to return one.
+BINARY9_FOLLOWUP_VARIANTS = {
+    "sboot": (
+        (
+            "sboot testkey",
+            "5b93c6d9eda29c40335536e64d9444eaa4188b33d99f162d2874a59d89ad3b0a",
+        ),
+        (
+            "sboot Note10+ modified (stock + 1 byte @0x100000 ^0xAA)",
+            "f16a77433ef9b7d4a04491ef31e143a8e3abc7848d42fbbb8acbb8eb32d261aa",
+        ),
+        (
+            "sboot Note10+ sig-flip (stock + 1 byte @0x17ff00 ^0xAA, code intact)",
+            "acafb4d9c443f656beb18cc1de761196650eeec788a1dd918ee31d45b9bab65e",
+        ),
+        (
+            "sboot Note10+ meme (CURRENT BINARY string -> 'Sambug EL2 bypassed')",
+            "a8e3ef46e41de3b714981fb329c7a5bc744aecea1fab2a621525fc45ce115cfe",
+        ),
+        (
+            "sboot Note10+ eng (have_this_mode->1, etc_development=1)",
+            "863a7721dadcb2e9bb2a47c682162f8afc61d2d1c9b71cff391b30c6ec07a27b",
+        ),
+    ),
+}
+
+
+def load_binary9_followup_stage(path: Path, index: int):
+    if index >= len(BINARY9_FOLLOWUP_STAGES):
+        raise RuntimeError("too many --receive-next-file arguments")
+
+    name, expected_size, expected_digest = BINARY9_FOLLOWUP_STAGES[index]
+    payload = path.read_bytes()
+    if len(payload) != expected_size:
+        raise RuntimeError(
+            f"{name} file is 0x{len(payload):x} bytes, expected "
+            f"0x{expected_size:x}"
+        )
+
+    digest = hashlib.sha256(payload).hexdigest()
+    for variant_name, variant_digest in BINARY9_FOLLOWUP_VARIANTS.get(
+        name, ()
+    ):
+        if digest == variant_digest:
+            return payload, f"{variant_name} (SHA-256 {digest})"
+    if digest != expected_digest:
+        raise RuntimeError(
+            f"{name} SHA-256 is {digest}, expected Binary 9 "
+            f"{expected_digest}"
+        )
+    return payload, f"Binary 9 {name} (SHA-256 {digest})"
+
+
+def read_fwbl1_dump(device, usb_core) -> bytes:
+    """Read the EPDUMP!! header, then the raw FWBL1 region that follows."""
+    header = read_probe_record(device, usb_core)
+    if header[:8] != DUMP_MAGIC:
+        print(
+            f"expected {DUMP_MAGIC!r}, got {header[:8]!r}", file=sys.stderr
+        )
+        return header
+    base = struct.unpack_from("<Q", header, 0x10)[0]
+    size = struct.unpack_from("<Q", header, 0x18)[0]
+    cur_el = struct.unpack_from("<Q", header, 0x20)[0]
+    print(
+        f"FWBL1 dump: base=0x{base:08x} size=0x{size:x} CurrentEL=0x{cur_el:x}"
+    )
+    buf = bytearray()
+    deadline = time.monotonic() + 20.0
+    while len(buf) < size and time.monotonic() < deadline:
+        want = min(USB_CAPTURE_SIZE, size - len(buf))
+        try:
+            chunk = bytes(device.read(0x81, want, timeout=1000))
+        except usb_core.USBTimeoutError:
+            continue
+        except usb_core.USBError as error:
+            print(f"dump read stopped: {error}", file=sys.stderr)
+            break
+        if chunk:
+            buf.extend(chunk)
+    print(f"collected 0x{len(buf):x} of 0x{size:x} bytes")
+    return header + bytes(buf)
+
+
+def run_receive_probe(
+    device,
+    usb_core,
+    receive_payload=None,
+    receive_frame=None,
+    receive_label=None,
+    timing_origin=None,
+    followup_frames=(),
+    dump_mode=False,
+) -> bytes:
     records = []
+
+    if receive_payload is not None:
+        epbl_frame = receive_frame or make_dnw_frame(receive_payload)
+        epbl_label = receive_label or (
+            "Binary 9 EPBL (SHA-256 "
+            f"{hashlib.sha256(receive_payload).hexdigest()})"
+        )
+    else:
+        epbl_frame = None
+        epbl_label = None
 
     def read_after_checkpoint(marker):
         try:
@@ -1264,6 +1883,9 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_ENTRY_STAGED_FAIL_MAGIC,
         EPBL_MMIO_STAGED_FAIL_MAGIC,
         EPBL_MMIO_TRAP_STAGED_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_FAIL_MAGIC,
         EPBL_DISPATCH_STAGED_FAIL_MAGIC,
     ):
         records.append(ready)
@@ -1281,12 +1903,20 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_ENTRY_STAGED_READY_MAGIC,
         EPBL_MMIO_STAGED_READY_MAGIC,
         EPBL_MMIO_TRAP_STAGED_READY_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_READY_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_READY_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_READY_MAGIC,
         EPBL_DISPATCH_STAGED_READY_MAGIC,
     ):
         raise RuntimeError(f"unexpected receive-probe marker {ready[:8]!r}")
 
     records.append(ready)
-    print(f"Received record {len(records)}: {ready[:8]!r}")
+    ready_marker = ready[:8]
+    ready_elapsed = (
+        time.monotonic() - timing_origin
+        if timing_origin is not None
+        else None
+    )
     if ready[:8] in (
         EPBL_READY_MAGIC,
         EPBL_HEADER_READY_MAGIC,
@@ -1297,39 +1927,162 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_ENTRY_STAGED_READY_MAGIC,
         EPBL_MMIO_STAGED_READY_MAGIC,
         EPBL_MMIO_TRAP_STAGED_READY_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_READY_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_READY_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_READY_MAGIC,
         EPBL_DISPATCH_STAGED_READY_MAGIC,
     ):
         if receive_payload is None:
             raise RuntimeError("EPBL probe requires --receive-file")
-        transfer = receive_payload
-        label = f"Binary 9 EPBL (SHA-256 {hashlib.sha256(transfer).hexdigest()})"
+        frame = epbl_frame
+        label = epbl_label
         timeout = 10000
     else:
         if receive_payload is not None:
             raise RuntimeError("--receive-file requires the EPBL receive probe")
-        transfer = RX_PATTERN
+        frame = make_dnw_frame(RX_PATTERN)
         label = "test pattern"
         timeout = 5000
 
-    frame = make_dnw_frame(transfer)
     try:
         written = device.write(0x02, frame, timeout=timeout)
     except usb_core.USBError as error:
+        write_elapsed = (
+            time.monotonic() - timing_origin
+            if timing_origin is not None
+            else None
+        )
+        print(f"Received record {len(records)}: {ready_marker!r}")
+        if ready_elapsed is not None:
+            print(
+                "USB timing since detection: "
+                f"ready={ready_elapsed:.3f}s, write-failed={write_elapsed:.3f}s"
+            )
         print(
-            f"USB write stopped after {ready[:8]!r}: {error}; preserving "
+            f"USB write stopped after {ready_marker!r}: {error}; preserving "
             f"{len(records)} record(s)",
             file=sys.stderr,
         )
         return b"".join(records)
     if written != len(frame):
+        print(f"Received record {len(records)}: {ready_marker!r}")
         print(
-            f"Short EP2 OUT write after {ready[:8]!r}: "
+            f"Short EP2 OUT write after {ready_marker!r}: "
             f"0x{written:x}/0x{len(frame):x}; preserving "
             f"{len(records)} record(s)",
             file=sys.stderr,
         )
         return b"".join(records)
+    print(f"Received record {len(records)}: {ready_marker!r}")
+    if ready_elapsed is not None:
+        write_elapsed = time.monotonic() - timing_origin
+        print(
+            "USB timing since detection: "
+            f"ready={ready_elapsed:.3f}s, write-done={write_elapsed:.3f}s"
+        )
     print(f"Sent framed {label}: 0x{written:x} bytes")
+
+    followup_ready_markers = (
+        EPBL_COLD_CONTEXT_STAGED_READY_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_READY_MAGIC,
+    )
+    if followup_frames and ready_marker not in followup_ready_markers:
+        raise RuntimeError(
+            "--receive-next-file requires a staged cold-path probe"
+        )
+
+    if ready_marker in followup_ready_markers:
+        if not followup_frames:
+            print(
+                "No follow-up Binary 9 stage was supplied; the cold EPBL may "
+                "wait for FWBL1",
+                file=sys.stderr,
+            )
+        followup_count = len(followup_frames)
+        boundary_count_invalid = (
+            ready_marker == EPBL_FWBL1_BOUNDARY_STAGED_READY_MAGIC
+            and followup_count != 1
+        )
+        cold_count_invalid = (
+            ready_marker == EPBL_COLD_CONTEXT_STAGED_READY_MAGIC
+            and not 1 <= followup_count <= 4
+        )
+        if followup_frames and (boundary_count_invalid or cold_count_invalid):
+            expected = (
+                "exactly one"
+                if ready_marker == EPBL_FWBL1_BOUNDARY_STAGED_READY_MAGIC
+                else "between one and four"
+            )
+            raise RuntimeError(
+                f"{ready_marker!r} requires {expected} "
+                "--receive-next-file argument(s)"
+            )
+        if (
+            ready_marker == EPBL_COLD_CONTEXT_STAGED_READY_MAGIC
+            and 0 < followup_count < 4
+        ):
+            print(
+                f"Cold-path diagnostic stops after {followup_count} "
+                "follow-up stage(s) and reads EP1 IN immediately"
+            )
+        # Once FWBL1 runs, each stage prints over EP1 IN and may wait for the
+        # host to consume it before arming the next OUT transfer. Drain EP1
+        # concurrently so a blocked stage write cannot deadlock that print.
+        chain_reader = None
+        if followup_count > 1:
+            chain_reader = Ep1ChainReader(device, usb_core, timing_origin)
+            chain_reader.start()
+        for followup_label, followup_frame in followup_frames:
+            try:
+                followup_written = device.write(
+                    0x02,
+                    followup_frame,
+                    timeout=30000 if chain_reader else 10000,
+                )
+            except usb_core.USBError as error:
+                elapsed = (
+                    time.monotonic() - timing_origin
+                    if timing_origin is not None
+                    else None
+                )
+                if elapsed is not None:
+                    print(
+                        "USB timing since detection: "
+                        f"follow-up-write-failed={elapsed:.3f}s"
+                    )
+                print(
+                    f"USB write stopped while sending {followup_label}: "
+                    f"{error}; preserving {len(records)} record(s)",
+                    file=sys.stderr,
+                )
+                if chain_reader:
+                    records.extend(chain_reader.finish(2.0))
+                return b"".join(records)
+            if followup_written != len(followup_frame):
+                print(
+                    f"Short EP2 OUT write for {followup_label}: "
+                    f"0x{followup_written:x}/0x{len(followup_frame):x}; "
+                    f"preserving {len(records)} record(s)",
+                    file=sys.stderr,
+                )
+                return b"".join(records)
+            elapsed = (
+                time.monotonic() - timing_origin
+                if timing_origin is not None
+                else None
+            )
+            timing = f" at {elapsed:.3f}s" if elapsed is not None else ""
+            print(
+                f"Sent framed {followup_label}: "
+                f"0x{followup_written:x} bytes{timing}"
+            )
+        if chain_reader:
+            print("All stages sent; listening on EP1 IN for 15 seconds")
+            records.extend(chain_reader.finish(15.0))
+            return b"".join(records)
+
+    if dump_mode:
+        return read_fwbl1_dump(device, usb_core)
 
     result = read_after_checkpoint(ready[:8])
     if len(result) != RECORD_SIZE:
@@ -1372,6 +2125,24 @@ def run_receive_probe(device, usb_core, receive_payload=None) -> bytes:
         EPBL_MMIO_TRAP_STAGED_VERIFY_FAIL_MAGIC,
         EPBL_MMIO_TRAP_STAGED_POSTLOAD_FAIL_MAGIC,
         EPBL_MMIO_TRAP_STAGED_FINALIZE_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_PASS_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_TRAP_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_ABORT_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_PASS_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_TRAP_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_COLD_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_PASS_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_TRAP_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_FAIL_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_VERIFY_FAIL_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_POSTLOAD_FAIL_MAGIC,
+        EPBL_FWBL1_BOUNDARY_STAGED_FINALIZE_FAIL_MAGIC,
         EPBL_DISPATCH_STAGED_PASS_MAGIC,
         EPBL_DISPATCH_STAGED_FAIL_MAGIC,
         EPBL_DISPATCH_STAGED_VERIFY_FAIL_MAGIC,
@@ -1626,10 +2397,26 @@ def run_live(args) -> bytes:
         raise RuntimeError(f"payload not found: {payload}")
 
     receive_payload = None
+    receive_frame = None
+    receive_label = None
+    followup_frames = []
     if args.receive_file is not None:
         receive_payload = load_binary9_epbl(args.receive_file.resolve())
+        receive_frame = make_dnw_frame(receive_payload)
+        receive_label = (
+            "Binary 9 EPBL (SHA-256 "
+            f"{hashlib.sha256(receive_payload).hexdigest()})"
+        )
+    for index, path in enumerate(args.receive_next_file):
+        followup_payload, followup_label = load_binary9_followup_stage(
+            path.resolve(), index
+        )
+        followup_frames.append(
+            (followup_label, make_binary9_stage_frame(followup_payload))
+        )
 
     device = wait_for_device(usb.core)
+    device_seen_at = time.monotonic()
     claim_device(device, usb.core, usb.util)
 
     try:
@@ -1663,7 +2450,16 @@ def run_live(args) -> bytes:
         if args.receive_test_direct:
             data = run_direct_receive_probe(device, usb.core)
         elif args.receive_test:
-            data = run_receive_probe(device, usb.core, receive_payload)
+            data = run_receive_probe(
+                device,
+                usb.core,
+                receive_payload,
+                receive_frame,
+                receive_label,
+                device_seen_at,
+                followup_frames,
+                dump_mode=args.dump_fwbl1,
+            )
         else:
             data = read_probe_records(device, usb.core)
         if not data:
@@ -1704,6 +2500,23 @@ def parse_args():
         help="send the exact Binary 9 EPBL requested by epbl_receive_probe",
     )
     parser.add_argument(
+        "--receive-next-file",
+        type=Path,
+        action="append",
+        default=[],
+        metavar="FILE",
+        help=(
+            "send one to four pinned Binary 9 stages after EPBL in FWBL1, "
+            "BL2, sboot, EL3 monitor order; a partial cold-path run reads "
+            "EP1 IN immediately after its last supplied stage"
+        ),
+    )
+    parser.add_argument(
+        "--dump-fwbl1",
+        action="store_true",
+        help="send EPBL+FWBL1 then save the decrypted FWBL1 region the probe streams out",
+    )
+    parser.add_argument(
         "--receive-test-direct",
         action="store_true",
         help="send the framed test pattern without waiting for an EP1 marker",
@@ -1736,6 +2549,12 @@ def parse_args():
         parser.error("--receive-test and --receive-test-direct are mutually exclusive")
     if args.receive_file and not args.receive_test:
         parser.error("--receive-file requires --receive-test")
+    if args.receive_next_file and not args.receive_file:
+        parser.error("--receive-next-file requires --receive-file")
+    if args.receive_next_file and not 1 <= len(args.receive_next_file) <= 4:
+        parser.error(
+            "--receive-next-file must be supplied between one and four times"
+        )
     return args
 
 
