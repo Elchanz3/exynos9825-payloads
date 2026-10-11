@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+import os
 import struct
 import sys
 import threading
@@ -83,6 +84,13 @@ EPBL_ABORT_CONTEXT_STAGED_FAIL_MAGIC = b"EPAFAIL!"
 EPBL_ABORT_CONTEXT_STAGED_VERIFY_FAIL_MAGIC = b"EPAVFAIL"
 EPBL_ABORT_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC = b"EPAPFAIL"
 EPBL_ABORT_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC = b"EPAFFAIL"
+EPBL_KEY_STATE_MAGIC = b"EKSTATE!"
+EPBL_KEY_DUMP_MAGIC = b"KEXDUM!!"
+EPBL_BOOT_UFS_LOADED_MAGIC = b"UFSLOAD!"
+EPBL_BOOT_UFS_META_MAGIC = b"UFSMETA!"
+UBSTAGE_MAGIC = b"UBSTAGE!"
+EPBL_BOOT_UFS_PASS_MAGIC = b"EPUPASS!"
+EPBL_BOOT_UFS_FAIL_MAGIC = b"EPUFAIL!"
 EPBL_COLD_CONTEXT_STAGED_READY_MAGIC = b"EPCRDY!!"
 EPBL_COLD_CONTEXT_STAGED_PASS_MAGIC = b"EPCPASS!"
 EPBL_COLD_CONTEXT_STAGED_TRAP_MAGIC = b"EPCTRAP!"
@@ -245,6 +253,84 @@ EPBL_VERIFY_FIELDS = (
     "verification status after",
     "parsed BL1 size",
     "parsed BL1 checksum",
+    "CurrentEL",
+)
+
+UBSTAGE_FIELDS = (
+    "status",
+    "x0 on entry",
+    "x1 on entry",
+    "x2 on entry",
+    "x3 on entry",
+    "CurrentEL",
+    "SP on entry",
+    "where the stage was loaded",
+    "unused",
+    "unused",
+)
+
+EPBL_BOOT_UFS_META_FIELDS = (
+    "status",
+    "0x02020030 BL1 size",
+    "0x02020034 BL1 checksum",
+    "0x02020070 status register 0",
+    "0x02020074 status register 1",
+    "0x0202007c SBC information",
+    "0x02020120 (unidentified on 9825)",
+    "0x02020124 (unidentified on 9825)",
+    "0x02020128 (unidentified on 9825)",
+    "CurrentEL",
+)
+
+EPBL_BOOT_UFS_LOADED_FIELDS = (
+    "status",
+    "load return (BootROM 0xcc68), 1 = success",
+    "boot state 0x02020064 before",
+    "EPBL destination (written by the stager)",
+    "loaded num_of_sector",
+    "loaded checksum",
+    "boot state 0x02020064 after the load",
+    "PTR_SECUREBOOT_KEY before our re-point",
+    "PMU 0x15860808 packed reboot reason",
+    "CurrentEL",
+)
+
+EPBL_KEY_DUMP_FIELDS = (
+    "status",
+    "KEY2 bytes 0x00-0x07",
+    "KEY2 bytes 0x08-0x0f",
+    "KEY2 bytes 0x10-0x17",
+    "KEY2 bytes 0x18-0x1f",
+    "KEY  bytes 0x00-0x07",
+    "KEY  bytes 0x08-0x0f",
+    "KEY  bytes 0x10-0x17",
+    "KEY  bytes 0x18-0x1f",
+    "CurrentEL",
+)
+
+EPBL_KEY_STATE_FIELDS = (
+    "status",
+    "SEC0 0x10001000",
+    "SEC1 0x1000b014",
+    "PTR_SECUREBOOT_KEY 0x0202006c as the ROM left it",
+    "OTP KEY  slot 0x10003000 first word",
+    "OTP KEY2 slot 0x10003020 first word",
+    "selector predicates packed (A..G = bits 0..6)",
+    "boot state 0x02020064",
+    "verify status 0x02020070",
+    "CurrentEL",
+)
+
+EPBL_BOOT_UFS_FIELDS = (
+    "status",
+    "load return (BootROM 0xcc68), 1 = success",
+    "boot state 0x02020064 before",
+    "boot state 0x02020064 after",
+    "boot device code read back, 1 = storage",
+    "loaded num_of_sector (stock EPBL = 0x18)",
+    "loaded checksum",
+    "expected stock EPBL checksum",
+    "nonzero bytes in the first 0x40 loaded",
     "CurrentEL",
 )
 
@@ -553,6 +639,18 @@ def decode_record(data: bytes):
         EPBL_FWBL1_BOUNDARY_STAGED_VERIFY_FAIL_MAGIC,
     ):
         fields = EPBL_VERIFY_FIELDS
+    elif magic == UBSTAGE_MAGIC:
+        fields = UBSTAGE_FIELDS
+    elif magic == EPBL_BOOT_UFS_META_MAGIC:
+        fields = EPBL_BOOT_UFS_META_FIELDS
+    elif magic == EPBL_BOOT_UFS_LOADED_MAGIC:
+        fields = EPBL_BOOT_UFS_LOADED_FIELDS
+    elif magic == EPBL_KEY_DUMP_MAGIC:
+        fields = EPBL_KEY_DUMP_FIELDS
+    elif magic == EPBL_KEY_STATE_MAGIC:
+        fields = EPBL_KEY_STATE_FIELDS
+    elif magic in (EPBL_BOOT_UFS_PASS_MAGIC, EPBL_BOOT_UFS_FAIL_MAGIC):
+        fields = EPBL_BOOT_UFS_FIELDS
     elif magic in (
         EPBL_POSTLOAD_STAGED_VERIFIED_MAGIC,
         EPBL_POSTLOAD_STAGED_PASS_MAGIC,
@@ -655,6 +753,139 @@ def decode_record(data: bytes):
 
     if magic == EL3_MAGIC:
         return True
+
+    if magic == UBSTAGE_MAGIC:
+        el = values[5] >> 2
+        print("  *** our own signed stage ran: the chain loaded, verified and")
+        print("      entered code we built and signed with our own keys ***")
+        print(f"  loaded at           = 0x{values[7]:x}  (the stage's real load address)")
+        print(f"  CurrentEL           = EL{el} (raw 0x{values[5]:x})")
+        print(f"  SP on entry         = 0x{values[6]:x}")
+        print(f"  x0..x3 on entry     = 0x{values[1]:x} 0x{values[2]:x} "
+              f"0x{values[3]:x} 0x{values[4]:x}")
+        return None
+
+    if magic == EPBL_BOOT_UFS_META_MAGIC:
+        # On 9825 the BL1 header parser (0x17c54) stores the EPBL size and the
+        # expected hash through 0x17c44 / 0x17c34, and BOTH write to
+        # 0x02020030 / 0x02020034 -- the same pair the BL1 phase uses. There is
+        # no separate 0x02020120/0x02020124 here, so do not read the 9830 names
+        # onto those slots; they hold unrelated memory and vary run to run.
+        size, hash_ = values[1], values[2]
+        print(f"  EPBL size   0x02020030 = 0x{size:x} "
+              f"{'(= 0x18 * 512, correct)' if size == 0x3000 else '<- not 0x3000'}")
+        print(f"  expect hash 0x02020034 = 0x{hash_:08x} "
+              "(compare against the flashed epbl.bin's word at +4)")
+        print(f"  SBC info    0x0202007c = 0x{values[5]:08x}")
+        print(f"  status regs 0x70 / 0x74 = 0x{values[3]:08x} / 0x{values[4]:08x}")
+        print("  (the 9830 status-bit names do not map onto 9825: reg0 reads")
+        print("   0x10df here, which fits none of them, so they are not decoded)")
+        print(f"  slots 0x120/0x124/0x128 = 0x{values[6]:08x} / 0x{values[7]:08x} "
+              f"/ 0x{values[8]:08x}  (unidentified on 9825)")
+        return None
+
+    if magic == EPBL_BOOT_UFS_LOADED_MAGIC:
+        print(f"  UFS load return      = {values[1]} ({'OK' if values[1] == 1 else 'FAILED'})")
+        print(f"  boot device nibble   = 0x{values[2]:08x} -> 0x{values[6]:08x} "
+              f"({'switched to storage' if (values[6] >> 4) & 0xf == 1 else 'NOT switched'})")
+        print(f"  loaded num_of_sector = 0x{values[4]:x} "
+              f"({'as expected' if values[4] == 0x18 else 'UNEXPECTED, want 0x18'})")
+        print(f"  loaded checksum      = 0x{values[5]:x} "
+              f"{'(cleared by the BootROM, normal)' if values[5] == 0 else ''}")
+        print(f"  key pointer was      = 0x{values[7]:08x} "
+              f"{'(Samsung KEY slot, about to be re-pointed at ours)' if values[7] == 0x10003000 else ''}")
+        rr = values[8]
+        b0, b1 = rr & 0xFF, (rr >> 8) & 0xFF
+        meaning = {0x4E: "'N' -> intentional normal booting (return 1)",
+                   0x70: "'p' -> return 0",
+                   0x30: "'0' -> the third branch"}.get(b1, "no special case -> default return 1")
+        print(f"  reboot reason        = 0x{rr:08x}  byte0=0x{b0:02x} byte1=0x{b1:02x}")
+        print(f"  sboot 0x3280 sees    = {meaning}")
+        if b0 == 0 and b1 == 0:
+            print("  both bytes zero, so 0x3280 takes its cbz branch instead")
+        print("  the chain continues from here; any further output comes from")
+        print("  sboot itself, and the BootROM USB link goes away with it")
+        return None
+
+    if magic == EPBL_KEY_DUMP_MAGIC:
+        key2 = b"".join(values[i].to_bytes(8, "little") for i in range(1, 5))
+        key = b"".join(values[i].to_bytes(8, "little") for i in range(5, 9))
+        print(f"  KEY2 = {key2.hex()}")
+        print(f"  KEY  = {key.hex()}")
+        blank = key2 == bytes(32)
+        print(f"  KEY2 is {'BLANK - nothing programmed' if blank else 'PROGRAMMED'}")
+        expected = os.environ.get("EXPECT_KEY2")
+        if expected:
+            want = bytes.fromhex(expected)
+            match = key2 == want
+            print(f"  expected KEY2 = {want.hex()}")
+            print(f"  KEY2 matches expected = {'YES' if match else 'NO'}")
+            return None if match else False
+        print("  (set EXPECT_KEY2=<64 hex chars> to compare against a value)")
+        return None
+
+    if magic == EPBL_KEY_STATE_MAGIC:
+        names = "ABCDEFG"
+        bits = values[6]
+        pred = {n: (bits >> i) & 1 for i, n in enumerate(names)}
+        print("  predicates           = "
+              + " ".join(f"{n}={pred[n]}" for n in names))
+        # Mirror the selector at 0x5780 so the chosen key is named, not guessed.
+        if pred["A"] == 0 and pred["B"] == 1:
+            chosen, why = 0x0001FAE0, "ROM key table (A==0 and B==1)"
+        elif pred["C"] == 1 and pred["D"] == 0:
+            chosen, why = 0x0001FAE0, "ROM key table (C==1 and D==0)"
+        elif pred["E"] == 1:
+            chosen, why = 0x10003000, "fused KEY slot (E==1)"
+        elif pred["F"] == 1 and pred["G"] == 0:
+            chosen, why = 0x0001FAE0, "ROM key table (F==1 and G==0)"
+        else:
+            chosen, why = 0x10003020, "fused KEY2 slot"
+        print(f"  selector would pick  = 0x{chosen:08x}, {why}")
+        print(f"  pointer the ROM left = 0x{values[3]:08x}")
+        agree = values[3] == chosen
+        print(f"  agreement            = {'OK' if agree else 'MISMATCH - re-read the selector'}")
+        if pred["E"] == 1:
+            print("  => E is tested before F/G, so KEY2 can never be reached while")
+            print("     E==1. If E is USE_KEY, fusing KEY2 would change nothing.")
+        else:
+            print("  => E==0, so the F/G branch is live and KEY2 is reachable.")
+        print(f"  KEY2 slot            = "
+              f"{'still blank' if values[5] == 0 else f'0x{values[5]:08x} - already programmed?'}")
+        return None if agree else False
+
+    if magic in (EPBL_BOOT_UFS_PASS_MAGIC, EPBL_BOOT_UFS_FAIL_MAGIC):
+        # The load is only believable if the BootROM reported success, the
+        # storage handler is the one that ran, and what landed at the
+        # destination really is the stock EPBL header.
+        load_ok = values[1] == 1
+        device_ok = values[4] == 1
+        # The BootROM zeroes the header checksum before verifying the ST1
+        # signature, because sign_st1 writes that field AFTER signing and it
+        # lies inside the signed range. So a cleared checksum here is the
+        # normal, expected outcome -- not a failure. Confirmed on hardware:
+        # the stock EPBL's first 0x40 holds 38 nonzero bytes intact and 34
+        # (0x22) with [4:8] cleared, and the device reported 34.
+        checksum_intact = values[6] == values[7]
+        checksum_cleared = values[6] == 0
+        header_ok = values[5] == 0x18 and (checksum_intact or checksum_cleared)
+        passed = magic == EPBL_BOOT_UFS_PASS_MAGIC and load_ok and device_ok and header_ok
+        print(f"  BootROM load call    = {'OK' if load_ok else 'FAILED'}")
+        print(f"  dispatched to        = "
+              f"{'storage (code 1)' if device_ok else f'device code {values[4]}'}")
+        if values[5] != 0x18:
+            header = f"NOT the stock EPBL (num_of_sector 0x{values[5]:x}, expected 0x18)"
+        elif checksum_intact:
+            header = "stock EPBL, checksum intact"
+        elif checksum_cleared:
+            header = "stock EPBL, checksum cleared by the BootROM (normal)"
+        else:
+            header = f"num_of_sector matches but checksum 0x{values[6]:x} is unexpected"
+        print(f"  loaded header        = {header}")
+        print(f"  nonzero in first 0x40= {values[8]} "
+              f"(stock EPBL: 38 intact, 34 with the checksum cleared)")
+        print(f"UFS load result      = {'PASS' if passed else 'FAIL'}")
+        return None if passed else False
 
     if magic == RELOCATION_COPY_MAGIC:
         passed = (
@@ -1672,6 +1903,18 @@ def read_probe_records(device, usb_core) -> bytes:
             ICACHE_TARGET_FAIL_MAGIC,
             ICACHE_DISABLE_PASS_MAGIC,
             b"EPS3IRAM",
+            # Every one of these is the last thing its payload sends: the
+            # read-only probes halt straight after, and the UFS chain hands
+            # off to sboot, which takes the USB link away. Without them in
+            # this list the loop reads again, that read fails, and the records
+            # already in hand are thrown away before being saved or decoded --
+            # which is exactly why the key-dump run needed three attempts.
+            EPBL_KEY_STATE_MAGIC,
+            EPBL_KEY_DUMP_MAGIC,
+            EPBL_BOOT_UFS_META_MAGIC,
+            UBSTAGE_MAGIC,
+            EPBL_BOOT_UFS_PASS_MAGIC,
+            EPBL_BOOT_UFS_FAIL_MAGIC,
         ):
             break
 
@@ -1696,7 +1939,7 @@ def make_binary9_stage_frame(payload: bytes) -> bytes:
     return bytes(frame)
 
 
-def load_binary9_epbl(path: Path) -> bytes:
+def load_binary9_epbl(path: Path, allow_unpinned: bool = False) -> bytes:
     transfer = path.read_bytes()
     if len(transfer) != 0x3000:
         raise RuntimeError(
@@ -1706,9 +1949,14 @@ def load_binary9_epbl(path: Path) -> bytes:
     digest = hashlib.sha256(transfer).hexdigest()
     expected = "d25e155bb032eebe43a832de9781bc6c88ee8f599b4888159ddedd6fde42511d"
     if digest != expected:
-        raise RuntimeError(
-            f"EPBL SHA-256 is {digest}, expected Binary 9 {expected}"
-        )
+        if not allow_unpinned:
+            raise RuntimeError(
+                f"EPBL SHA-256 is {digest}, expected Binary 9 {expected}"
+                "\n(pass --allow-unpinned-stages to send a stage that is not "
+                "in the known-image allowlist, e.g. a chain resigned with our "
+                "own keys -- the size check still applies)"
+            )
+        print(f"EPBL: unpinned, SHA-256 {digest}")
     return transfer
 
 
@@ -1763,7 +2011,9 @@ BINARY9_FOLLOWUP_VARIANTS = {
 }
 
 
-def load_binary9_followup_stage(path: Path, index: int):
+def load_binary9_followup_stage(
+    path: Path, index: int, allow_unpinned: bool = False
+):
     if index >= len(BINARY9_FOLLOWUP_STAGES):
         raise RuntimeError("too many --receive-next-file arguments")
 
@@ -1782,10 +2032,15 @@ def load_binary9_followup_stage(path: Path, index: int):
         if digest == variant_digest:
             return payload, f"{variant_name} (SHA-256 {digest})"
     if digest != expected_digest:
-        raise RuntimeError(
-            f"{name} SHA-256 is {digest}, expected Binary 9 "
-            f"{expected_digest}"
-        )
+        if not allow_unpinned:
+            raise RuntimeError(
+                f"{name} SHA-256 is {digest}, expected Binary 9 "
+                f"{expected_digest}"
+                "\n(pass --allow-unpinned-stages to send a stage that is not "
+                "in the known-image allowlist, e.g. a chain resigned with our "
+                "own keys -- the size check still applies)"
+            )
+        return payload, f"{name} unpinned (SHA-256 {digest})"
     return payload, f"Binary 9 {name} (SHA-256 {digest})"
 
 
@@ -2401,7 +2656,9 @@ def run_live(args) -> bytes:
     receive_label = None
     followup_frames = []
     if args.receive_file is not None:
-        receive_payload = load_binary9_epbl(args.receive_file.resolve())
+        receive_payload = load_binary9_epbl(
+            args.receive_file.resolve(), args.allow_unpinned_stages
+        )
         receive_frame = make_dnw_frame(receive_payload)
         receive_label = (
             "Binary 9 EPBL (SHA-256 "
@@ -2409,7 +2666,7 @@ def run_live(args) -> bytes:
         )
     for index, path in enumerate(args.receive_next_file):
         followup_payload, followup_label = load_binary9_followup_stage(
-            path.resolve(), index
+            path.resolve(), index, args.allow_unpinned_stages
         )
         followup_frames.append(
             (followup_label, make_binary9_stage_frame(followup_payload))
@@ -2460,6 +2717,21 @@ def run_live(args) -> bytes:
                 followup_frames,
                 dump_mode=args.dump_fwbl1,
             )
+        elif args.listen_ep1:
+            # Ep1ChainReader must be the ONLY consumer of EP1 IN: running it
+            # alongside read_probe_records has the two racing for the same
+            # endpoint, the thread wins, and the probe record is consumed
+            # before the reader loop ever sees it -- which looked exactly like
+            # the payload having stopped emitting records at all.
+            # finish() already pulls probe records out of the chunks and prints
+            # everything else as text, so take the records from it.
+            print(
+                f"Draining EP1 IN for {args.listen_ep1:g}s; text below is from "
+                "whatever owns the chain once our payload hands over"
+            )
+            listener = Ep1ChainReader(device, usb.core, device_seen_at)
+            listener.start()
+            data = b"".join(listener.finish(args.listen_ep1))
         else:
             data = read_probe_records(device, usb.core)
         if not data:
@@ -2543,6 +2815,30 @@ def parse_args():
         "--debug",
         action="store_true",
         help="show Houston iRAM hexdumps",
+    )
+    parser.add_argument(
+        "--listen-ep1",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help=(
+            "after the payload's record, keep draining EP1 IN for this long "
+            "and print what arrives. Needed when the payload hands control to "
+            "a chain that prints on its own: without it that output is lost "
+            "and a hang looks identical to a successful boot."
+        ),
+    )
+    parser.add_argument(
+        "--allow-unpinned-stages",
+        action="store_true",
+        help=(
+            "send stages whose SHA-256 is not in the known-image allowlist "
+            "(the per-stage size check still applies). Needed for a chain "
+            "resigned with our own keys: ECDSA uses a random nonce, so every "
+            "rebuild produces different signatures and a different hash, and "
+            "pinning them is not possible. Verify such a chain with "
+            "scripts/verify_9825.py before sending it."
+        ),
     )
     args = parser.parse_args()
     if args.receive_test and args.receive_test_direct:

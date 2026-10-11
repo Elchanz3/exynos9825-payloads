@@ -15,6 +15,9 @@ PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
 	epbl_mmio_trap_staged_probe epbl_mmio_trap_noic_staged_probe \
 	epbl_abort_context_staged_probe epbl_cold_context_staged_probe \
 	epbl_dump_fwbl1_probe epbl_bypass_probe epbl_verify_diag_probe epbl_bootstate_probe epbl_sboot_noverify_probe \
+	epbl_custom_key_hmac_probe epbl_custom_key_efuse_probe \
+	epbl_boot_ufs_probe epbl_key_state_probe epbl_boot_ufs_chain_probe epbl_key_dump_probe \
+	ubstage_hello \
 	epbl_fwbl1_boundary_staged_probe \
 	epbl_dispatch_staged_probe \
 	relocation_probe \
@@ -24,9 +27,13 @@ PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
 
 CPPFLAGS := -Iinclude
 ASFLAGS  := -ffreestanding -fno-pic -fno-pie -march=armv8-a
-LDFLAGS  := -nostdlib -nostartfiles -static -no-pie \
-	-Wl,--build-id=none -Wl,-z,max-page-size=0x1000 \
-	-Wl,-T,arch/arm64/payload.ld
+LDFLAGS_BASE := -nostdlib -nostartfiles -static -no-pie \
+	-Wl,--build-id=none -Wl,-z,max-page-size=0x1000
+LDFLAGS  := $(LDFLAGS_BASE) -Wl,-T,arch/arm64/payload.ld
+# A replacement boot-chain stage is not a Houston payload, so it must not
+# inherit payload.ld: that would link it into the iRAM probe region and apply
+# the DWC3 TRB ceiling assert, neither of which applies to a DRAM stage.
+LDFLAGS_STAGE := $(LDFLAGS_BASE) -Wl,-T,arch/arm64/stage.ld
 
 COMMON_OBJ := $(BUILD_DIR)/common/dwc3_ep1.o
 ELFS       := $(PAYLOADS:%=$(BUILD_DIR)/%.elf)
@@ -186,6 +193,67 @@ $(BUILD_DIR)/payloads/epbl_sboot_noverify_probe.o: \
 	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
 		-DEPBL_SBOOT_NOVERIFY -c $< -o $@
 
+# Custom secure-boot key: re-point PTR_SECUREBOOT_KEY (0x0202006c) at our own
+# 32-byte key so the BootROM verifies our resigned EPBL against it. Deliberately
+# WITHOUT EPBL_SBOOT_NOVERIFY: once our ST1 is trusted, the ST2 stages are
+# verified against the st2_key_tee embedded in our own EPBL footer and should
+# pass legitimately. Two builds because the expected 32-byte form is not yet
+# known; see custom_boot_key in payloads/epbl_header_probe.S.
+# Storage-load probe: force the boot device to UFS and call the ROM's own load
+# function (0xcc68), then report and halt. No key re-point and no boot
+# continuation, so it is safe against the stock sboot already on UFS.
+# Replacement boot-chain stage, not a Houston payload: position-independent and
+# linked with stage.ld rather than payload.ld.
+$(BUILD_DIR)/payloads/ubstage_hello.o: payloads/ubstage_hello.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/ubstage_hello.elf: \
+	$(BUILD_DIR)/payloads/ubstage_hello.o \
+	arch/arm64/stage.ld
+	$(CC) $(LDFLAGS_STAGE) $(filter %.o,$^) -o $@
+
+# Read-only: dump both 32-byte OTP key slots in full.
+$(BUILD_DIR)/payloads/epbl_key_dump_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_KEY_DUMP -c $< -o $@
+
+# Boot the chain from UFS with our custom key: only the image SOURCE changes,
+# everything downstream is the already-proven path. Needs the custom key, or
+# the BootROM verifies our ST1 against Samsung's and rejects it.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_chain_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Read-only: report the BootROM key selector's inputs and the pointer it chose.
+$(BUILD_DIR)/payloads/epbl_key_state_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_KEY_STATE -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_boot_ufs_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_custom_key_hmac_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_CUSTOM_KEY -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_custom_key_efuse_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
 $(BUILD_DIR)/payloads/epbl_fwbl1_boundary_staged_probe.o: \
 	payloads/epbl_header_probe.S
 	@mkdir -p $(@D)
@@ -341,6 +409,36 @@ $(BUILD_DIR)/epbl_bootstate_probe.elf: \
 
 $(BUILD_DIR)/epbl_sboot_noverify_probe.elf: \
 	$(BUILD_DIR)/payloads/epbl_sboot_noverify_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_key_dump_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_key_dump_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_chain_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_chain_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_key_state_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_key_state_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_custom_key_hmac_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_custom_key_hmac_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_custom_key_efuse_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_custom_key_efuse_probe.o \
 	arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 

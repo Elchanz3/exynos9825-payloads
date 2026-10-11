@@ -7,7 +7,19 @@
 #define PROBE_RELOCATION_ADDRESS       0x02025000
 #define PROBE_EPBL_DESTINATION         0x02022000
 #define PROBE_EPBL_SIZE                0x3000
+#if defined(EPBL_BOOT_UFS) || defined(EPBL_KEY_STATE) || \
+    defined(EPBL_BOOT_UFS_CHAIN) || defined(EPBL_KEY_DUMP)
+/*
+ * These paths make the relocated worker reach 0x02025868, past the usual
+ * 0x02025800 vector slot, and the probe WRITES branch instructions into that
+ * slot -- the two would overwrite each other. Push the vectors clear of the
+ * worker. Both this and its +0x200 companion stay below 0x02026000, which is
+ * where FWBL1 lives (PROBE_FWBL1_ENTRY 0x02026010), so the region is free.
+ */
+#define PROBE_EXCEPTION_VBAR           0x02025c00
+#else
 #define PROBE_EXCEPTION_VBAR           0x02025800
+#endif
 #define PROBE_DWC3_GEVNTCOUNT0         0x10c0c40c
 #define PROBE_DWC3_DSTS                0x10c0c70c
 #define PROBE_DWC3_DALEPENA            0x10c0c720
@@ -232,6 +244,94 @@
 #define PROBE_BOOT_FLAGS               0x02020070
 #define PROBE_ENTRY_FLAG               0x00800000
 
+#ifdef EPBL_KEY_STATE
+/*
+ * Read-only probe for the BootROM key selector's inputs and its result.
+ *
+ * The ROM runs the selector at 0x5780 from its boot function at 0x1dc, well
+ * before our payload gets control, so iRAM 0x0202006c already holds whichever
+ * key pointer it chose. Reading that, plus the two security-status registers
+ * the selector tests, identifies which key the chip is actually rooted on.
+ *
+ * Selector logic (0x5780), where SEC0 = 0x10001000 and SEC1 = 0x1000b014:
+ *   A SEC0.8  B SEC1.31  C SEC0.1  D SEC0.3  E SEC0.0  F SEC1.0  G SEC1.3
+ *   A==0 && B==1        -> ROM table 0x1fae0
+ *   C==1 && D==0        -> ROM table 0x1fae0
+ *   E==1                -> KEY  0x10003000
+ *   F==1 && G==0        -> ROM table 0x1fae0
+ *   else                -> KEY2 0x10003020
+ * E is tested before F/G, so if E is USE_KEY then a device with USE_KEY=1 can
+ * never reach KEY2 -- which would block fusing KEY2 entirely. This probe is
+ * how we find out, and it only reads.
+ */
+#define PROBE_SEC_STATUS0              0x10001000
+#define PROBE_SEC_STATUS1              0x1000b014
+#define PROBE_KEY_POINTER              0x0202006c
+#define PROBE_OTP_KEY_SLOT             0x10003000
+#define PROBE_OTP_KEY2_SLOT            0x10003020
+#define PROBE_KEY_STATE_MAGIC          0x2145544154534b45  /* "EKSTATE!" */
+#endif
+
+#ifdef EPBL_KEY_DUMP
+/*
+ * Dump both 32-byte OTP key slots, so a programmed KEY2 can be compared
+ * byte-for-byte against get_efuse_data(). Read-only.
+ */
+#define PROBE_OTP_KEY_SLOT             0x10003000
+#define PROBE_OTP_KEY2_SLOT            0x10003020
+#define PROBE_KEY_DUMP_MAGIC           0x21214d554458454b  /* "KEXDUM!!" */
+#endif
+
+#if defined(EPBL_BOOT_UFS) || defined(EPBL_BOOT_UFS_CHAIN)
+/*
+ * Load the next stage from storage instead of over USB.
+ *
+ * The ROM's top-level boot function at 0x160 loads with 0xcc68 and then
+ * verifies with 0x5b58 (our PROBE_POSTLOAD). 0xcc68 reads the boot-device code
+ * by calling 0x17f14, then dispatches:
+ *     1 -> 0x13554   storage (UFS)        <- what we want
+ *     2 -> 0x10bf4   3 -> 0x11448
+ *     4 -> 0x17654   USB                  <- the live value in EUB
+ *     5 -> 0xcd34    6 -> 0xcd40   7 -> 0x574c
+ * The boot-state word at 0x02020064 is
+ *     0xCB000000 | (A << 8) | (device << 4) | index
+ * so forcing bits 7:4 to 1 selects storage. Observed live in EUB:
+ * 0xcb000041, i.e. device 4 = USB.
+ *
+ * 0x17f14(w0=index) sets the low nibble to w0 and returns the nibble at that
+ * index, i.e. the device code -- used here to read the selection back.
+ */
+#define PROBE_LOAD_IMAGE               0x0000cc68
+#define PROBE_BOOT_DEVICE              0x00017f14
+#define PROBE_BOOT_UFS_KEY_POINTER     0x0202006c
+/*
+ * PMU register holding sboot's packed reboot-reason bytes. sboot's
+ * boot-mode decision at u-boot 0x3280 reads byte 1 of this through
+ * 0x819c(1) and compares it: 0x4e 'N' -> "intentional normal booting"
+ * (return 1), 0x70 'p' -> return 0. Read it here before deciding what to
+ * write, rather than guessing which byte already holds what.
+ */
+#define PROBE_PMU_REBOOT_REASON        0x15860808
+#define PROBE_BOOT_UFS_LOADED_MAGIC    0x2144414f4c534655  /* "UFSLOAD!" */
+#define PROBE_BOOT_UFS_META_MAGIC      0x214154454d534655  /* "UFSMETA!" */
+/*
+ * iRAM metadata the BL1 header parse normally fills in. Reading these after a
+ * storage load shows whether 0xcc68 populates them the way the USB path's
+ * header parse (0x17c54) does -- the UFS path skips that parse, so if these are
+ * stale the chain inherits wrong metadata.
+ *   0x02020030 BL1 size            0x02020034 BL1 checksum
+ *   0x02020070 status register 0    0x02020074 status register 1
+ *   0x0202007c SBC information
+ *   0x02020120 EPBL size            0x02020124 EPBL expected hash
+ *   0x02020128 EPBL load address
+ */
+#define PROBE_IRAM_BL1_SIZE            0x02020030
+#define PROBE_IRAM_STATUS_REG0         0x02020070
+#define PROBE_IRAM_EPBL_SIZE           0x02020120
+#define PROBE_BOOT_UFS_PASS_MAGIC      0x2153534150555045  /* "EPUPASS!" */
+#define PROBE_BOOT_UFS_FAIL_MAGIC      0x214c494146555045  /* "EPUFAIL!" */
+#endif
+
 #ifdef EPBL_COLD_CONTEXT_STAGED
     /*
      * The I-cache still holds every line this stager executed from
@@ -414,6 +514,28 @@ relocated_entry:
     orr     w24, w24, w25
     cbnz    w24, cancel_clear_failed
 
+#ifdef EPBL_KEY_STATE
+    b       key_state_path
+#endif
+
+#ifdef EPBL_BOOT_UFS_CHAIN
+    b       boot_ufs_chain_path
+#endif
+
+#ifdef EPBL_KEY_DUMP
+    b       key_dump_path
+#endif
+
+#ifdef EPBL_BOOT_UFS
+    /*
+     * Branch out to the storage-load path. The body lives past the
+     * `.org relocated_start + 0x600` slot below, so this variant does not
+     * disturb the proven layout the other variants depend on.
+     */
+    b       boot_ufs_path
+#endif
+
+
     /* Clear and arm the stock BootROM EPBL destination. */
     ldr     w21, =PROBE_EPBL_DESTINATION
     str     w21, [x22, #0xc0]
@@ -595,6 +717,7 @@ arm_event_ready:
     bl      probe_usb_send_wait
 #endif
 
+epbl_loaded:
     /* Use the matched BootROM routine that parses the BL1 block header. */
     ldr     x16, =PROBE_PARSE_BL1_HEADER
     blr     x16
@@ -686,6 +809,7 @@ arm_event_ready:
     cmp     w25, #1
     b.ne    verifier_failed
 
+epbl_verified:
 #ifdef EPBL_POSTLOAD_PATH
 #ifndef EPBL_ENTRY_PATH
     /* Snapshot the exact stock boundary before its post-load setup routine. */
@@ -716,6 +840,34 @@ arm_event_ready:
     mov     x0, x19
     mov     w1, #PROBE_RECORD_SIZE
     bl      probe_usb_send_wait
+#endif
+
+#ifdef EPBL_CUSTOM_KEY
+    /*
+     * Custom secure-boot key, non-destructive. 0x5b58 below calls the BootROM
+     * BL1 verifier at 0x599c, which reads PTR_SECUREBOOT_KEY from iRAM
+     * 0x0202006c and verifies the loaded EPBL against the 32-byte key it
+     * points at (0x599c: bl 0x5760 getter; ldr w1,[x0,#20] key_index;
+     * mov w2,#0x20; bl 0xc1f8). Normally the BootROM's own selector (0x5780)
+     * has pointed it at the ROM key table (0x0001fae0, indexed by key_index
+     * with stride 32) or at a fused OTP slot (KEY 0x10003000 / KEY2
+     * 0x10003020), so an EPBL signed with our key is rejected -- that is the
+     * status 0x105 postload_failed we observed.
+     *
+     * The verifier skips the table indexing when the pointer is outside the
+     * ROM (`and w0, ptr, #0xfffe0000` non-zero), so pointing it at our key
+     * inside this payload (iRAM, 0x0202xxxx) makes it a single direct key.
+     * This REDIRECTS verification at our key rather than disabling it, and
+     * touches iRAM only, so it is fully reversible on reboot.
+     *
+     * Write it as late as possible -- here, immediately before the verifier --
+     * so the BootROM selector cannot overwrite the pointer afterwards.
+     */
+    adr     x4, custom_boot_key
+    movz    x6, #0x006c
+    movk    x6, #0x0202, lsl #16        /* PTR_SECUREBOOT_KEY = 0x0202006c */
+    str     w4, [x6]
+    dsb     sy
 #endif
 
     /* Match the EUB main path: the mode selector passed one to 0x5b58. */
@@ -1581,6 +1733,362 @@ verify_diag_stub_end:
     br      x16
 #endif
 .size fwbl1_noic_entry, . - fwbl1_noic_entry
+#endif
+
+#ifdef EPBL_KEY_DUMP
+/*
+ * Read both OTP key slots in full and halt. Writes nothing.
+ * Each slot is read as 32-bit accesses and packed two words per record field.
+ */
+.type key_dump_path, %function
+key_dump_path:
+    adr     x19, probe_record
+    add     x25, x19, #0x18             /* first KEY2 field */
+    ldr     x20, =PROBE_OTP_KEY2_SLOT
+    mov     w23, #4
+key_dump_key2:
+    ldr     w21, [x20]
+    ldr     w22, [x20, #4]
+    orr     x21, x21, x22, lsl #32
+    str     x21, [x25], #8
+    add     x20, x20, #8
+    subs    w23, w23, #1
+    b.ne    key_dump_key2
+
+    ldr     x20, =PROBE_OTP_KEY_SLOT
+    mov     w23, #4
+key_dump_key:
+    ldr     w21, [x20]
+    ldr     w22, [x20, #4]
+    orr     x21, x21, x22, lsl #32
+    str     x21, [x25], #8
+    add     x20, x20, #8
+    subs    w23, w23, #1
+    b.ne    key_dump_key
+
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+    ldr     x20, =PROBE_KEY_DUMP_MAGIC
+    str     x20, [x19]
+    mov     x21, #1
+    str     x21, [x19, #0x10]
+    b       report_result
+.size key_dump_path, . - key_dump_path
+#endif
+
+#ifdef EPBL_BOOT_UFS_CHAIN
+/*
+ * Load the chain from UFS instead of over USB, then rejoin the normal flow.
+ *
+ * Only the SOURCE of the image changes. Everything downstream is the path that
+ * is already proven on hardware: the header parse, the EPBL_CUSTOM_KEY
+ * re-point of PTR_SECUREBOOT_KEY, the 0x5b58 verify, and the boot
+ * continuation. Build this together with -DEPBL_CUSTOM_KEY
+ * -DEPBL_CUSTOM_KEY_EFUSE, or the BootROM will verify our ST1 against
+ * Samsung's key and reject it.
+ *
+ * Mirrors the ROM's own sequence at 0x204: set the boot-device nibble, call
+ * 0xcc68, require 1.
+ */
+.type boot_ufs_chain_path, %function
+boot_ufs_chain_path:
+    /* Zero the destination, so a failed or short read cannot look like data. */
+    ldr     x21, =PROBE_EPBL_DESTINATION
+    mov     x23, #PROBE_EPBL_SIZE
+boot_ufs_chain_clear:
+    str     xzr, [x21], #8
+    subs    x23, x23, #8
+    b.ne    boot_ufs_chain_clear
+    dsb     sy
+
+    adr     x19, probe_record
+    ldr     x20, =PROBE_BOOT_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x20]           /* boot state before */
+    and     w22, w21, #0xffffff0f
+    orr     w22, w22, #0x10             /* device 1 = storage */
+    str     w22, [x20]
+    dsb     sy
+
+    mov     w0, #1                      /* attempt 1, as the ROM does */
+    ldr     x16, =PROBE_LOAD_IMAGE
+    blr     x16
+    str     x0, [x19, #0x18]            /* 0xcc68 return */
+    cmp     w0, #1
+    b.ne    receive_failed
+
+    /*
+     * Report before continuing. On the EPBL_ENTRY_PATH the stock flow emits no
+     * records, so without this the only signal is "the device vanished" --
+     * which looks identical whether the chain booted or the payload crashed.
+     */
+    ldr     x20, =PROBE_EPBL_DESTINATION
+    ldr     w21, [x20]
+    str     x21, [x19, #0x30]           /* loaded num_of_sector */
+    ldr     w21, [x20, #4]
+    str     x21, [x19, #0x38]           /* loaded checksum */
+    ldr     x20, =PROBE_BOOT_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x40]           /* boot state after the load */
+    ldr     x20, =PROBE_BOOT_UFS_KEY_POINTER
+    ldr     w21, [x20]
+    str     x21, [x19, #0x48]           /* key pointer before our re-point */
+    ldr     x20, =PROBE_PMU_REBOOT_REASON
+    ldr     w21, [x20]
+    str     x21, [x19, #0x50]           /* packed reboot reason, byte 1 decides */
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+    ldr     x20, =PROBE_BOOT_UFS_LOADED_MAGIC
+    str     x20, [x19]
+    mov     x21, #1
+    str     x21, [x19, #0x10]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+    adr     x19, probe_record
+
+    /* Second record: the iRAM metadata a header parse would have filled in. */
+    adr     x19, probe_record
+    ldr     x20, =PROBE_IRAM_BL1_SIZE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x18]           /* 0x02020030 BL1 size */
+    ldr     w21, [x20, #4]
+    str     x21, [x19, #0x20]           /* 0x02020034 BL1 checksum */
+    ldr     x20, =PROBE_IRAM_STATUS_REG0
+    ldr     w21, [x20]
+    str     x21, [x19, #0x28]           /* 0x02020070 status register 0 */
+    ldr     w21, [x20, #4]
+    str     x21, [x19, #0x30]           /* 0x02020074 status register 1 */
+    ldr     w21, [x20, #0xc]
+    str     x21, [x19, #0x38]           /* 0x0202007c SBC information */
+    ldr     x20, =PROBE_IRAM_EPBL_SIZE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x40]           /* 0x02020120 EPBL size */
+    ldr     w21, [x20, #4]
+    str     x21, [x19, #0x48]           /* 0x02020124 EPBL expected hash */
+    ldr     w21, [x20, #8]
+    str     x21, [x19, #0x50]           /* 0x02020128 EPBL load address */
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+    ldr     x20, =PROBE_BOOT_UFS_META_MAGIC
+    str     x20, [x19]
+    mov     x21, #1
+    str     x21, [x19, #0x10]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+    adr     x19, probe_record
+
+    /*
+     * Rejoin AFTER the header parse and the 0xc9a0 verify, not before them.
+     * 0xcc68 already did both internally -- that is why the image it leaves
+     * has its header checksum CLEARED, exactly as the read-only storage probe
+     * observed. Calling 0x17c54 and 0xc9a0 again over an already-processed
+     * image fails the second time (status 0x104), which is what the first
+     * attempt at this path hit. The USB path needs those two calls because a
+     * USB receive parses and verifies nothing.
+     */
+    adr     x19, probe_record
+    mov     w25, #1
+    b       epbl_verified
+.size boot_ufs_chain_path, . - boot_ufs_chain_path
+#endif
+
+#ifdef EPBL_KEY_STATE
+/*
+ * Read-only: report the selector's inputs and the pointer it already chose,
+ * then halt. Writes nothing at all.
+ */
+.type key_state_path, %function
+key_state_path:
+    adr     x19, probe_record
+
+    ldr     x20, =PROBE_SEC_STATUS0
+    ldr     w21, [x20]
+    str     x21, [x19, #0x18]           /* SEC0 0x10001000 */
+    mov     w23, w21                    /* keep for the packed predicates */
+
+    ldr     x20, =PROBE_SEC_STATUS1
+    ldr     w22, [x20]
+    str     x22, [x19, #0x20]           /* SEC1 0x1000b014 */
+
+    ldr     x20, =PROBE_KEY_POINTER
+    ldr     w21, [x20]
+    str     x21, [x19, #0x28]           /* the pointer the ROM selector chose */
+
+    /* First word of each OTP key slot: KEY2 should still read as zero. */
+    ldr     x20, =PROBE_OTP_KEY_SLOT
+    ldr     w21, [x20]
+    str     x21, [x19, #0x30]
+    ldr     x20, =PROBE_OTP_KEY2_SLOT
+    ldr     w21, [x20]
+    str     x21, [x19, #0x38]
+
+    /*
+     * Pack the seven predicates so the host does not have to re-derive them:
+     * bit0 A(SEC0.8) bit1 B(SEC1.31) bit2 C(SEC0.1) bit3 D(SEC0.3)
+     * bit4 E(SEC0.0) bit5 F(SEC1.0)  bit6 G(SEC1.3)
+     */
+    mov     w24, #0
+    ubfx    w21, w23, #8, #1
+    orr     w24, w24, w21
+    ubfx    w21, w22, #31, #1
+    orr     w24, w24, w21, lsl #1
+    ubfx    w21, w23, #1, #1
+    orr     w24, w24, w21, lsl #2
+    ubfx    w21, w23, #3, #1
+    orr     w24, w24, w21, lsl #3
+    ubfx    w21, w23, #0, #1
+    orr     w24, w24, w21, lsl #4
+    ubfx    w21, w22, #0, #1
+    orr     w24, w24, w21, lsl #5
+    ubfx    w21, w22, #3, #1
+    orr     w24, w24, w21, lsl #6
+    str     x24, [x19, #0x40]
+
+    ldr     x20, =PROBE_BOOT_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x48]
+
+    ldr     x21, =PROBE_VERIFY_STATUS
+    ldr     w21, [x21]
+    str     x21, [x19, #0x50]           /* 0x02020070 verify status */
+
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+
+    ldr     x20, =PROBE_KEY_STATE_MAGIC
+    str     x20, [x19]
+    mov     x21, #1
+    str     x21, [x19, #0x10]
+    b       report_result
+.size key_state_path, . - key_state_path
+#endif
+
+#ifdef EPBL_BOOT_UFS
+/*
+ * Storage-load path. Deliberately does NOT re-point PTR_SECUREBOOT_KEY and
+ * does NOT continue the boot: it loads from UFS, reports what landed, and
+ * halts in report_result. That makes it safe against the STOCK sboot already
+ * on UFS, which is the point -- it validates the load path on its own before
+ * anything is flashed. Re-pointing the key here would make stock fail
+ * verification, since stock is signed with Samsung's key.
+ *
+ * Placed after the `.org relocated_start + 0x600` slot, so this variant
+ * leaves the layout the other variants depend on untouched.
+ */
+.type boot_ufs_path, %function
+boot_ufs_path:
+    ldr     x21, =PROBE_EPBL_DESTINATION
+    mov     x23, #PROBE_EPBL_SIZE
+boot_ufs_clear:
+    str     xzr, [x21], #8
+    subs    x23, x23, #8
+    b.ne    boot_ufs_clear
+    dsb     sy
+
+    adr     x19, probe_record
+    ldr     x20, =PROBE_BOOT_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x20]           /* boot state before */
+
+    /* Force the device nibble (bits 7:4) to 1 = storage, keep the rest. */
+    and     w22, w21, #0xffffff0f
+    orr     w22, w22, #0x10
+    str     w22, [x20]
+    dsb     sy
+    ldr     w22, [x20]
+    str     x22, [x19, #0x28]           /* boot state after */
+
+    /* Attempt 1, exactly as the ROM's retry loop at 0x200 does. */
+    mov     w0, #1
+    ldr     x16, =PROBE_LOAD_IMAGE
+    blr     x16
+    mov     w25, w0
+    str     x25, [x19, #0x18]           /* 0xcc68 return, 1 = success */
+
+    /* Read the device code back, to prove which handler ran. */
+    mov     w0, #1
+    ldr     x16, =PROBE_BOOT_DEVICE
+    blr     x16
+    str     x0, [x19, #0x30]
+
+    /* Header of whatever landed: stock EPBL is 0x18 sectors, checksum known. */
+    ldr     x20, =PROBE_EPBL_DESTINATION
+    ldr     w21, [x20]
+    str     x21, [x19, #0x38]           /* num_of_sector, expect 0x18 */
+    ldr     w21, [x20, #4]
+    str     x21, [x19, #0x40]           /* checksum */
+    ldr     w21, =PROBE_EPBL_CHECKSUM
+    str     x21, [x19, #0x48]           /* expected checksum */
+
+    /* Nonzero byte count over the first 0x40, so "nothing loaded" is visible. */
+    mov     w22, #0
+    mov     x23, #0
+boot_ufs_count:
+    ldrb    w24, [x20, x23]
+    cmp     w24, #0
+    cinc    w22, w22, ne
+    add     x23, x23, #1
+    cmp     x23, #0x40
+    b.lo    boot_ufs_count
+    str     x22, [x19, #0x50]
+
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+
+    cmp     w25, #1
+    b.ne    boot_ufs_failed
+    ldr     x20, =PROBE_BOOT_UFS_PASS_MAGIC
+    b       boot_ufs_emit
+boot_ufs_failed:
+    ldr     x20, =PROBE_BOOT_UFS_FAIL_MAGIC
+boot_ufs_emit:
+    str     x20, [x19]
+    mov     x21, #1
+    str     x21, [x19, #0x10]           /* status */
+    b       report_result
+.size boot_ufs_path, . - boot_ufs_path
+#endif
+
+#ifdef EPBL_CUSTOM_KEY
+/*
+ * Our 32-byte secure-boot key value, for PTR_SECUREBOOT_KEY (0x0202006c).
+ *
+ * Derived from $EUB/9825_customkey/keys/4/st1.pem + keys/hmac.bin. Which of
+ * the two forms the BootROM compares against is not yet known, so there is one
+ * build per candidate and the hardware decides: a run that still reports
+ * status 0x105 rules that candidate out, a run that proceeds past the verifier
+ * confirms it.
+ *
+ *   EPBL_CUSTOM_KEY_HMAC  the un-XORed HMAC, i.e. what sign_st1 writes into
+ *                         the SBL1 footer's `hmac` field:
+ *                         HMAC-SHA512(hmac_key, st1_publickey[:136])[:32]
+ *   EPBL_CUSTOM_KEY_EFUSE what patch_9825.py's get_efuse_data() returns, i.e.
+ *                         what the fuse actually burns: that HMAC XOR hmac_key
+ *
+ * These bytes are tied to those key files. tools/check_custom_key.py
+ * recomputes both from the keys and compares them against a built payload, so
+ * a stale copy here is caught before anything is sent to the phone.
+ */
+.balign 8
+.globl custom_boot_key
+custom_boot_key:
+#if defined(EPBL_CUSTOM_KEY_EFUSE)
+    /* 1d12d364cf441dfe7d5084a054691cf1c7f71e068e2470881e52ce280c7c330b */
+    .byte 0x1d, 0x12, 0xd3, 0x64, 0xcf, 0x44, 0x1d, 0xfe
+    .byte 0x7d, 0x50, 0x84, 0xa0, 0x54, 0x69, 0x1c, 0xf1
+    .byte 0xc7, 0xf7, 0x1e, 0x06, 0x8e, 0x24, 0x70, 0x88
+    .byte 0x1e, 0x52, 0xce, 0x28, 0x0c, 0x7c, 0x33, 0x0b
+#else
+    /* 007cd770ac3d05e04e156a8e0bf4d8999c3161d95923ec9d2873e771d51be5a2 */
+    .byte 0x00, 0x7c, 0xd7, 0x70, 0xac, 0x3d, 0x05, 0xe0
+    .byte 0x4e, 0x15, 0x6a, 0x8e, 0x0b, 0xf4, 0xd8, 0x99
+    .byte 0x9c, 0x31, 0x61, 0xd9, 0x59, 0x23, 0xec, 0x9d
+    .byte 0x28, 0x73, 0xe7, 0x71, 0xd5, 0x1b, 0xe5, 0xa2
+#endif
+custom_boot_key_end:
+.size custom_boot_key, . - custom_boot_key
 #endif
 
 .ltorg
