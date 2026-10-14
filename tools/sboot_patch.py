@@ -239,6 +239,74 @@ class Patcher:
         self._write(etc_market + 4, bytes.fromhex("00 00 80 52"), "etc_market=0")       # bl -> mov w0,#0
         self._write(etc_market + 20, bytes.fromhex("20 00 80 52"), "etc_development=1")  # bl -> mov w0,#1
 
+    # A PMU INFORM register nothing in this stage touches (0x15860800, 804,
+    # 810..81c are all unused; 808 is MINFORM and 80c is the download magic).
+    # The always-on domain keeps it across a warm reset, so a value left here
+    # by a dying boot can be read back by the next payload.
+    SCRATCH_INFORM = 0x15860818
+
+    def patch_skip_usb_recovery(self):
+        # Never draw the blue "USB RECOVERY MODE" prompt.
+        #
+        # It is the tail of the secure-payload block: when
+        # `load_secure_payload()` fails, u-boot prints "Fail to load Secure
+        # Payload!!", prints the debug info, and tail-branches into this
+        # function, which draws
+        #
+        #     UP KEY : NORMAL BOOTING / DOWN KEY : DOWNLOAD MODE
+        #     USB RECOVERY MODE
+        #
+        # waits for a key, and writes 0x66265999 to DRAM 0x80000000 on the way
+        # out -- so the screen arms itself for the next boot, and a bench board
+        # on USB power never loses the word. It already returns 0 without
+        # drawing when neither magic matches, so a `mov w0,#0 ; ret` is that
+        # same answer, unconditionally.
+        xref = find_single_xref(self.data, "USB RECOVERY MODE\n")
+        start = xref
+        while start > xref - 0x400:
+            if is_prologue(self.data, start):
+                break
+            start -= 4
+        else:
+            raise KeyError("no prologue before the USB RECOVERY MODE string")
+        self._write(start, RETURN_ZERO, "usb_recovery_prompt->0")
+
+    def patch_report_secure_payload(self):
+        # Park the secure-payload loader's return code in a PMU INFORM
+        # register, because the failure is otherwise invisible: the message it
+        # prints goes to a console this board does not expose, and by the time
+        # anything could be read back the device is off the USB bus.
+        #
+        #     mov  w0, #0x20
+        #     bl   load_secure_payload
+        #     cbz  x0, <ok>
+        #     mov  x1, x0                 <- overwritten from here
+        #     adrp x0, "Fail to load Secure Payload!! [ret = %lx]"
+        #     add  x0, x0, #0x808
+        #     bl   printf
+        #
+        # Four instructions are replaced by movz/movk/str/nop, which keeps the
+        # layout and costs only the printf nobody can read.
+        xref = find_single_xref(
+            self.data, "Fail to load Secure Payload!! [ret = %lx]\n")
+        site = None
+        for off in range(xref - 0x20, xref, 4):
+            if u32(self.data, off) == 0xAA0003E1:        # mov x1, x0
+                site = off
+                break
+        if site is None:
+            raise KeyError("no `mov x1,x0` before the secure-payload message")
+        low = self.SCRATCH_INFORM & 0xFFFF
+        high = (self.SCRATCH_INFORM >> 16) & 0xFFFF
+        blob = struct.pack(
+            "<IIII",
+            0xD2800001 | (low << 5),          # movz x1, #low
+            0xF2A00001 | (high << 5),         # movk x1, #high, lsl #16
+            0xB9000020,                       # str  w0, [x1]
+            0xD503201F)                       # nop
+        self._write(site, blob,
+                    f"secure payload ret -> {self.SCRATCH_INFORM:#x}")
+
     def patch_normal_boot(self):
         # Force the Download-vs-normal-boot fork to normal boot.
         #
@@ -339,6 +407,10 @@ def main(argv=None):
                     help="also relax signature / warranty / RPMB checks")
     ap.add_argument("--normal-boot", action="store_true",
                     help="force the Download-vs-normal-boot fork to normal boot")
+    ap.add_argument("--diag-secure-payload", action="store_true",
+                    help="skip the USB RECOVERY prompt and park the "
+                         "secure-payload loader's return code in a PMU INFORM "
+                         "register for the next payload to read")
     ap.add_argument("--no-eng", action="store_true",
                     help="skip the engineering-identity patches (have_this_mode, "
                          "etc_market/etc_development), leaving the unit reporting "
@@ -357,6 +429,9 @@ def main(argv=None):
         p.patch_normal_boot()
         if not args.no_eng:
             p.patch_ignore_magic_code()
+    if args.diag_secure_payload:
+        p.patch_skip_usb_recovery()
+        p.patch_report_secure_payload()
     if args.all:
         p.patch_check_signature()
         p.patch_warranty()
