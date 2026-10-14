@@ -280,6 +280,41 @@ class Patcher:
         self._write(site, bytes.fromhex("00 00 80 52"),   # mov w0, #0
                     "s5p_check_download -> 0")
 
+    def patch_ignore_magic_code(self):
+        # Ignore the MAGIC_CODE word in DRAM.
+        #
+        # Early in its main flow u-boot does
+        #
+        #     mov  x1, #0x80000000
+        #     ldr  w19, [x1]                 ; printf("MAGIC_CODE 0x%x", w19)
+        #     ... == 0x66269633 || == 0x66265999 || == 0x6626ccca -> upload path
+        #
+        # and that path ends at the blue "USB RECOVERY MODE" prompt, which on
+        # its way out writes 0x66265999 back to 0x80000000. The word therefore
+        # survives into the next attempt, and since a bench board on USB power
+        # only ever warm-resets, DRAM keeps it: one failed boot hijacks every
+        # run after it, before the download fork is even reached.
+        #
+        # Reading zero instead makes each run independent of the last. A full
+        # power-off clears it too, but that is a thing to remember rather than
+        # a property of the image.
+        xref = find_single_xref(self.data, "MAGIC_CODE 0x%x\n")
+        base = None
+        for off in range(xref - 0x20, xref + 0x20, 4):
+            if u32(self.data, off) == 0xD2B00001:        # mov x1, #0x80000000
+                base = off
+                break
+        if base is None:
+            raise KeyError("no `mov x1,#0x80000000` next to the MAGIC_CODE print")
+        for off in range(base + 4, base + 0x20, 4):
+            word = u32(self.data, off)
+            if word & 0xFFFFFC00 == 0xB9400000 and (word >> 5) & 31 == 1:
+                reg = word & 31                          # ldr wN,[x1]
+                self._write(off, struct.pack("<I", 0x52800000 | reg),
+                            "MAGIC_CODE -> 0")
+                return
+        raise KeyError("no `ldr wN,[x1]` after the MAGIC_CODE base load")
+
     def patch_check_signature(self):
         self.stub_function_at_string(
             "There is no signature\n", RETURN_ZERO, "check_signature->0", 0x200)
@@ -315,6 +350,7 @@ def main(argv=None):
     p.patch_eng_efuse_bits()
     if args.normal_boot:
         p.patch_normal_boot()
+        p.patch_ignore_magic_code()
     if args.all:
         p.patch_check_signature()
         p.patch_warranty()
