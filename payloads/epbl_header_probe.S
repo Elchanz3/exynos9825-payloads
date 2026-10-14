@@ -1577,6 +1577,34 @@ fwbl1_after_decrypt:
      * own setters are read-modify-write of a single field each. So the value
      * survives from here to the read.
      */
+    /*
+     * Before touching anything, report the PMU scratch registers over EP1.
+     *
+     * 0x15860810..0x1586081c are in the always-on domain and nothing in this
+     * chain writes them, so they survive the warm reset between runs: a
+     * breadcrumb left by u-boot in the previous boot (see
+     * sboot_patch.py --diag-secure-payload) is still there when the next
+     * payload starts. The host prints anything that is not a probe record as a
+     * hexdump, which is enough -- and it costs no extra run, unlike dumping a
+     * region after the fact.
+     */
+    movz    x4, #0x8020
+    movk    x4, #0x0203, lsl #16        /* scratch buffer in FWBL1 padding */
+    movz    x5, #0x0810
+    movk    x5, #0x1586, lsl #16
+    ldr     w6, [x5]
+    str     w6, [x4]
+    ldr     w6, [x5, #4]
+    str     w6, [x4, #4]
+    ldr     w6, [x5, #8]
+    str     w6, [x4, #8]
+    ldr     w6, [x5, #12]
+    str     w6, [x4, #12]
+    dsb     sy
+    mov     x0, x4
+    mov     w1, #0x10
+    bl      probe_usb_send_wait
+
     movz    x4, #0x0808
     movk    x4, #0x1586, lsl #16        /* MINFORM = 0x15860808 */
     movz    w5, #0x0000
