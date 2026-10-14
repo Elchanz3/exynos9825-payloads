@@ -15,6 +15,7 @@ PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
 	epbl_mmio_trap_staged_probe epbl_mmio_trap_noic_staged_probe \
 	epbl_abort_context_staged_probe epbl_cold_context_staged_probe \
 	epbl_dump_fwbl1_probe epbl_bypass_probe epbl_verify_diag_probe epbl_bootstate_probe epbl_sboot_noverify_probe \
+	epbl_minform_normal_probe epbl_android_boot_probe \
 	epbl_custom_key_hmac_probe epbl_custom_key_efuse_probe \
 	epbl_boot_ufs_probe epbl_key_state_probe epbl_boot_ufs_chain_probe epbl_key_dump_probe \
 	ubstage_hello \
@@ -70,6 +71,8 @@ DISASMS    := $(PAYLOADS:%=$(BUILD_DIR)/%.disasm)
 	$(BUILD_DIR)/payloads/epbl_verify_diag_probe.o \
 	$(BUILD_DIR)/payloads/epbl_bootstate_probe.o \
 	$(BUILD_DIR)/payloads/epbl_sboot_noverify_probe.o \
+	$(BUILD_DIR)/payloads/epbl_minform_normal_probe.o \
+	$(BUILD_DIR)/payloads/epbl_android_boot_probe.o \
 	$(BUILD_DIR)/payloads/epbl_fwbl1_boundary_staged_probe.o \
 	$(BUILD_DIR)/payloads/epbl_dispatch_staged_probe.o \
 	$(BUILD_DIR)/payloads/relocation_probe.o \
@@ -180,6 +183,24 @@ $(BUILD_DIR)/payloads/epbl_verify_diag_probe.o: \
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED \
 		-DEPBL_DISABLE_ICACHE -DEPBL_VERIFY_DIAG -c $< -o $@
+
+# MINFORM = 'N','N' only: the stock chain with an unmodified sboot, told that
+# this boot is an intentional normal boot, so u-boot takes the normal-boot fork
+# instead of Download mode. No verify bypass, nothing in sboot changed.
+$(BUILD_DIR)/payloads/epbl_minform_normal_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED \
+		-DEPBL_DISABLE_ICACHE -DEPBL_MINFORM_NORMAL -c $< -o $@
+
+# The same MINFORM write plus the is_secure_boot bypass, for running a PATCHED
+# sboot (tools/sboot_patch.py --normal-boot) that forces the fork itself.
+$(BUILD_DIR)/payloads/epbl_android_boot_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED \
+		-DEPBL_DISABLE_ICACHE -DEPBL_MINFORM_NORMAL \
+		-DEPBL_SBOOT_NOVERIFY -c $< -o $@
 
 $(BUILD_DIR)/payloads/epbl_bootstate_probe.o: \
 	payloads/epbl_header_probe.S
@@ -409,6 +430,16 @@ $(BUILD_DIR)/epbl_bootstate_probe.elf: \
 
 $(BUILD_DIR)/epbl_sboot_noverify_probe.elf: \
 	$(BUILD_DIR)/payloads/epbl_sboot_noverify_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_minform_normal_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_minform_normal_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_android_boot_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_android_boot_probe.o \
 	arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 

@@ -1516,7 +1516,7 @@ fwbl1_noic_entry:
     adr     x16, fwbl1_shim_entry_x4
     str     x4, [x16]
     dsb     sy
-#if defined(EPBL_DUMP_FWBL1) || defined(EPBL_PATCH_VERIFY) || defined(EPBL_VERIFY_DIAG) || defined(EPBL_SBOOT_NOVERIFY)
+#if defined(EPBL_DUMP_FWBL1) || defined(EPBL_PATCH_VERIFY) || defined(EPBL_VERIFY_DIAG) || defined(EPBL_SBOOT_NOVERIFY) || defined(EPBL_MINFORM_NORMAL)
     /*
      * The FWBL1 body is still encrypted at the shim; the stub self-decrypts
      * it when FWBL1 runs (decrypt+verify routine at 0x02026720, whose caller
@@ -1552,6 +1552,38 @@ fwbl1_noic_entry:
     br      x16
 
 fwbl1_after_decrypt:
+#ifdef EPBL_MINFORM_NORMAL
+    /*
+     * Tell u-boot that this boot is an intentional normal boot.
+     *
+     * MINFORM (PMU 0x15860808) is Samsung's boot-intent word. u-boot splits it
+     * into fields with get_minform_magic(idx): idx 0 = bits 31..24, idx 1 =
+     * bits 23..16, and four nibbles below. is_normal_booting() (sboot
+     * 0xc9003280) reads fields 0 and 1 and returns 1 when field 1 is 'N'
+     * (0x4e); 0 when both are zero ("minform is reset value"), which is what a
+     * cold boot over the BootROM USB path leaves behind.
+     *
+     * That zero is why the chain lands in Download mode. s5p_check_download()
+     * (0xc900e9e0) consults is_normal_booting() last, and when it returns 0 it
+     * falls through to ifconn_check_jig_adc_value() -- a cable IS attached,
+     * since we are booting over it -- and returns download reason 4. With
+     * field 1 = 'N' it returns 0 instead, and the caller's `cbz` at
+     * 0xc90038f8 takes the normal-boot path.
+     *
+     * 0x4e4e0000 sets both bytes to 'N' and leaves the nibbles at zero, which
+     * is what they already are. Nothing else in the chain writes this word:
+     * EPBL, FWBL1 (encrypted and decrypted) and el3_mon never reference it;
+     * BL2 only reads bits 4..7 (its own upload-mode check, +0xe4); and u-boot's
+     * own setters are read-modify-write of a single field each. So the value
+     * survives from here to the read.
+     */
+    movz    x4, #0x0808
+    movk    x4, #0x1586, lsl #16        /* MINFORM = 0x15860808 */
+    movz    w5, #0x0000
+    movk    w5, #0x4e4e, lsl #16        /* 'N','N' */
+    str     w5, [x4]
+    dsb     sy
+#endif
 #if defined(EPBL_DUMP_FWBL1)
     adr     x19, probe_record
     ldr     x20, =PROBE_DUMP_MAGIC
@@ -1630,6 +1662,10 @@ fwbl1_after_decrypt:
     movk    x6, #0x0202, lsl #16        /* PTR_IS_SECUREBOOT = 0x020200A8 */
     str     w4, [x6]                    /* point it at our stub */
     dsb     sy
+    ldr     x16, =PROBE_FWBL1_DECRYPT_CONT
+    br      x16
+#elif defined(EPBL_MINFORM_NORMAL)
+    /* MINFORM only: the write above is the whole payload, rejoin the boot. */
     ldr     x16, =PROBE_FWBL1_DECRYPT_CONT
     br      x16
 #else

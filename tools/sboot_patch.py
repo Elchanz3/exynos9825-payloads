@@ -22,6 +22,8 @@
 #   - check_signature            -> return 0
 #   - set_warranty_bit / reason  -> return 0
 #   - [KG]/[RLC] read_data (RPMB) -> return 0
+# With --normal-boot, force the Download-vs-normal-boot fork to normal boot, so
+# a chain booted over USB continues into Android instead of the Odin screen.
 
 import argparse
 import struct
@@ -72,6 +74,61 @@ def adrp_add_target(data, off):
     return None
 
 
+def adrp_pointer_values(data, off, window=7):
+    """Every address an ADRP at `off` can form with the ADDs that follow it.
+
+    Samsung builds a __func__ pointer in two steps, and not always in the same
+    register:
+
+        adrp x20, <page>
+        add  x1, x20, #0x240      <- destination differs from the source
+        add  x1, x1, #0x20
+
+    so a resolver that insists on `add xd,xd,#imm` (which is all the format
+    strings need) sees nothing here. Follow the renames and return the page
+    plus every partial sum, because which one is the real pointer depends on
+    how far the chain goes.
+    """
+    adrp = u32(data, off)
+    if adrp & 0x9F000000 != 0x90000000:
+        return ()
+    imm = ((adrp >> 29) & 3) | (((adrp >> 5) & 0x7FFFF) << 2)
+    page = (off & ~0xFFF) + (sign_extend(imm, 21) << 12)
+    live = {adrp & 31: page}
+    values = {page}
+    for step in range(1, window + 1):
+        word = u32(data, off + 4 * step)
+        if word & 0xFF000000 != 0x91000000:          # add xd,xs,#imm
+            continue
+        src, dst = (word >> 5) & 31, word & 31
+        if src not in live:
+            continue
+        shift = 12 if word & 0x400000 else 0
+        value = live[src] + (((word >> 10) & 0xFFF) << shift)
+        live[dst] = value
+        values.add(value)
+    return tuple(values)
+
+
+def find_function_by_name_string(data, name):
+    """The function that references its own __func__ string `name`.
+
+    All references to a __func__ literal are inside the function it names, so
+    several xrefs are expected; they just have to agree on the function.
+    """
+    string_off = find_string(data, name)
+    funcs = set()
+    for off in range(0, len(data) - 32, 4):
+        if string_off in adrp_pointer_values(data, off):
+            try:
+                funcs.add(function_start(data, off))
+            except KeyError:
+                pass
+    if len(funcs) != 1:
+        raise KeyError(f"xrefs to {name!r} resolve to {len(funcs)} functions")
+    return funcs.pop()
+
+
 def find_string(data, text):
     needle = text.encode() + b"\0"
     off = data.find(needle)
@@ -91,11 +148,27 @@ def find_single_xref(data, text):
     return refs[0]
 
 
+_call_targets = {}
+
+
+def call_targets(data):
+    key = id(data)
+    if key not in _call_targets:
+        _call_targets[key] = sorted({bl_target(data, o)
+                                     for o in range(0, len(data) - 3, 4)
+                                     if is_bl(data, o)})
+    return _call_targets[key]
+
+
 def function_start(data, inside, limit=0x800):
-    for off in range(inside & ~3, max(0, inside - limit), -4):
-        if is_prologue(data, off):
-            return off
-    raise KeyError(f"no function prologue within {limit:#x} before {inside:#x}")
+    # The entry is the nearest BL target at or before `inside`. Scanning back
+    # for the first prologue is wrong when a function opens with
+    # `sub sp,sp,#N` followed by `stp x29,x30,...` (e.g. [KG] read_data).
+    entry = max((t for t in call_targets(data)
+                 if inside - limit <= t <= inside), default=None)
+    if entry is None or not is_prologue(data, entry):
+        raise KeyError(f"no called function entry within {limit:#x} before {inside:#x}")
+    return entry
 
 
 class Patcher:
@@ -139,9 +212,10 @@ class Patcher:
 
     def patch_eng_efuse_bits(self):
         # Inside the efuse-init routine (holds the nantirbk0/commercial_bit
-        # diagnostics) a run of "mov w0,#k ; bl ; str w0,[xN,#off]" programs the
-        # reported fuse fields. etc_market is the mov that feeds [#0x40]; the
-        # next such mov (16 bytes on) feeds etc_development at [#0x44].
+        # diagnostics) a run of "mov w0,#k ; bl read ; ldr ; str w0,[xN,#off]"
+        # programs the reported fuse fields. The mov selects WHICH field is
+        # read, so the result is forced by replacing the BL: etc_market feeds
+        # [#0x40], etc_development (16 bytes on) feeds [#0x44].
         func = function_start(self.data, find_single_xref(
             self.data, "commercial_bit mismatch!(%d vs %d), updating...\n"))
         def is_mov_w0(word):          # mov w0,#imm16
@@ -159,8 +233,51 @@ class Patcher:
                 break
         if etc_market is None:
             raise KeyError("etc_market store not found")
-        self._write(etc_market, bytes.fromhex("00 00 80 52"), "etc_market=0")       # mov w0,#0
-        self._write(etc_market + 16, bytes.fromhex("20 00 80 52"), "etc_development=1")  # mov w0,#1
+        if not (is_bl(self.data, etc_market + 20)
+                and is_str_w0(u32(self.data, etc_market + 28), 0x44)):
+            raise KeyError("etc_development read does not follow etc_market")
+        self._write(etc_market + 4, bytes.fromhex("00 00 80 52"), "etc_market=0")       # bl -> mov w0,#0
+        self._write(etc_market + 20, bytes.fromhex("20 00 80 52"), "etc_development=1")  # bl -> mov w0,#1
+
+    def patch_normal_boot(self):
+        # Force the Download-vs-normal-boot fork to normal boot.
+        #
+        # s5p_check_download() returns a download reason, 0 meaning "boot
+        # normally", and its single caller is
+        #
+        #     bl   s5p_check_download
+        #     cbz  w0, <normal boot>      <- taken only when the reason is 0
+        #
+        # Six reasons can fire before the one we could reach from outside: the
+        # param-block requests (param[0] == 1 or 0xd), the 0xabcf magic,
+        # param[4], a pressed key, and -- last -- is_normal_booting() == 0
+        # followed by ifconn_check_jig_adc_value() == 1. That last pair is what
+        # puts a USB-booted device in Download mode: MINFORM is the reset value
+        # on a cold boot, and a cable is by definition attached. Rather than
+        # answer one reason at a time, make the fork unconditional.
+        #
+        # The keypad escape goes with it, which costs nothing here: everything
+        # runs from RAM, so a power cycle boots the stock sboot from UFS.
+        func = find_function_by_name_string(self.data, "s5p_check_download")
+        callers = [o for o in range(0, len(self.data) - 3, 4)
+                   if is_bl(self.data, o) and bl_target(self.data, o) == func]
+        if len(callers) != 1:
+            raise KeyError(f"s5p_check_download has {len(callers)} callers, expected 1")
+        # The compiler keeps the reason for the download call (`mov w21,w0`),
+        # so the test is a couple of instructions past the BL, not next to it.
+        site = word = None
+        for step in range(1, 5):
+            cursor = callers[0] + 4 * step
+            candidate = u32(self.data, cursor)
+            if candidate & 0xFF00001F == 0x34000000:     # cbz w0, label
+                site, word = cursor, candidate
+                break
+        if site is None:
+            raise KeyError("no `cbz w0, label` within 4 instructions of the call")
+        offset = sign_extend((word >> 5) & 0x7FFFF, 19) << 2
+        branch = 0x14000000 | ((offset >> 2) & 0x03FFFFFF)
+        self._write(site, struct.pack("<I", branch),
+                    "download fork -> normal boot")
 
     def patch_check_signature(self):
         self.stub_function_at_string(
@@ -184,6 +301,8 @@ def main(argv=None):
     ap.add_argument("--out")
     ap.add_argument("--all", action="store_true",
                     help="also relax signature / warranty / RPMB checks")
+    ap.add_argument("--normal-boot", action="store_true",
+                    help="force the Download-vs-normal-boot fork to normal boot")
     ap.add_argument("--dry-run", action="store_true",
                     help="locate and report patches without writing")
     args = ap.parse_args(argv)
@@ -193,6 +312,8 @@ def main(argv=None):
 
     p.patch_have_this_mode()
     p.patch_eng_efuse_bits()
+    if args.normal_boot:
+        p.patch_normal_boot()
     if args.all:
         p.patch_check_signature()
         p.patch_warranty()

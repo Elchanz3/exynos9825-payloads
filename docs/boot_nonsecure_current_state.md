@@ -133,6 +133,38 @@ With `--all`, also relaxes the non-stock-image checks: `check_signature`
 Patching only rewrites sboot on disk; the patched image is still rejected by the
 stock chain at the BL2→sboot boundary. It runs only through the bypass above.
 
+### `tools/sboot_symbols.py` — function names out of an image with no symbols
+
+Samsung's u-boot logs with `printf("%s: ...", __func__, ...)`, so the name of
+almost every interesting function is in the image as a plain string, loaded just
+before the call. Resolving those loads gives a symbol table for a stage that
+ships without one.
+
+The catch, and the reason this did not work on the first attempt: the pointer is
+built in two steps, and the destination register is not always the source.
+
+```
+adrp x20, <page>
+add  x1, x20, #0x240
+add  x1, x1,  #0x20       -> 0xc90d5260 = "s5p_check_download"
+```
+
+A resolver that only accepts `adrp` + one `add xd,xd,#imm` — which is all the
+format strings in `sboot_patch.py` need — reports zero references for every
+`__func__` literal. `adrp_pointer_values()` (in `sboot_patch.py`, used by
+`--normal-boot`) follows the renames and returns every partial sum.
+
+```sh
+tools/sboot_symbols.py sboot_stage.bin                  # ~490 names
+tools/sboot_symbols.py sboot_stage.bin --grep download
+tools/sboot_symbols.py sboot_stage.bin --at 0xc9003280  # -> is_normal_booting
+```
+
+Attribution is by "nearest called entry at or before the load", the same rule
+`sboot_patch.py` uses, so a function that is not itself a call target can absorb
+a neighbour's name (`0xc9047f44` comes out as `ustar`). Confirm a name against
+the disassembly before relying on it.
+
 ### `tools/exynos_sign.py` — RSA code signer (sign_type 0)
 
 The 9825/9820 family signs with sign_type 0 (RSA-2048, RSA-PSS SHA-256), confirmed
@@ -171,6 +203,13 @@ targets), run with `tools/boot_nonsecure_probe.py`.
   `0x02020064 = 0xcb000041`, PTR_IS_SECUREBOOT = `0x58b4`, SBC_INFO = `0x10003004`,
   STATUS0 = `0xf6b00edf`.
 - `epbl_sboot_noverify_probe` — the confirmed bypass (re-point PTR_IS_SECUREBOOT).
+- `epbl_minform_normal_probe` — writes MINFORM (`0x15860808`) = `0x4e4e0000` at the
+  post-decrypt hook and rejoins the stock boot. Nothing else changes, and sboot is
+  the stock image, so no verify bypass is involved. See the section on the
+  Download fork below. Artifact `build/epbl_minform_normal_probe.bin` (2176 bytes).
+- `epbl_android_boot_probe` — the same MINFORM write plus the PTR_IS_SECUREBOOT
+  bypass, for running a patched sboot (`tools/sboot_patch.py --normal-boot`).
+  Artifact `build/epbl_android_boot_probe.bin` (2224 bytes).
 
 EP2 `STARTTRANSFER` activation is intermittent; a full power cycle (Vol-Down+Power
 ~10 s) clears a bad streak (software event index `0x1f`). This is device USB state,
@@ -286,10 +325,77 @@ check `0x114`) and surface the values (the routines already printf
 Confirms KEY2 is free and USE_KEY is set, and validates the OTP SMC from this
 context, without programming anything.
 
+## Why the chain stops at Download mode, and the fork that decides it
+
+Everything below is static analysis of `hwha_stages/sboot_stage.bin` (u-boot
+runs at `0xc9000000`, so VA = `0xc9000000` + file offset). Nothing here has been
+run on hardware yet.
+
+The fork is in u-boot's main flow:
+
+```
+0xc90038f0   bl   s5p_check_download          (0xc900e9e0)
+0xc90038f4   mov  w21, w0                     (keep the reason for do_download)
+0xc90038f8   cbz  w0, 0xc90039fc              -> NORMAL BOOT (draws the logo)
+             ...  print "AST_DLOAD.."; do_download(w21)   (0xc900eee8)
+```
+
+`s5p_check_download()` returns a download reason, zero meaning "boot normally".
+It tests, in order:
+
+| reason | condition |
+|---|---|
+| 2 | `param[0] == 1` (a `reboot download` request; it clears the param) |
+| 7 | `param[0] == 0xd` |
+| 3 | `param[3] & 0xffff0000 == 0xabcf0000` |
+| 6 | `param[4] != 0` |
+| 1 | a key is pressed (`0xc900e484`) |
+| — | **`is_normal_booting()` != 0 → returns 0, i.e. normal boot** |
+| 4 | otherwise, if `ifconn_check_jig_adc_value()` (`0xc9023eac`) == 1 |
+
+The last two lines are what matters for a USB-booted chain:
+
+- `is_normal_booting()` (`0xc9003280`) reads **MINFORM** (PMU `0x15860808`) and
+  asks `get_minform_magic()` (`0xc900819c`) for two of its fields — index 0 is
+  bits 31..24, index 1 is bits 23..16 (the remaining four indexes are nibbles;
+  the order comes from the jump table at `0xc90d4bd0`). It returns 1 when field 1
+  is `'N'` (0x4e) — "intentional normal booting" — and 0 when both fields are
+  zero, which it reports as "minform is reset value". A cold boot over the
+  BootROM USB path leaves exactly that zero.
+- `ifconn_check_jig_adc_value()` then reads the connector's ADC. A cable is
+  attached by definition here, since the payload arrives over it, so this
+  returns 1 and the function answers reason **4**.
+
+So the Download screen is not a verification failure or a USB-boot gate: it is
+u-boot concluding that nobody asked for a normal boot and a cable is plugged in.
+
+Two levers, both prepared:
+
+1. **MINFORM** — write `0x4e4e0000` ('N','N') before u-boot reads it, and the
+   stock, unmodified sboot takes the normal-boot fork. Nothing in the chain
+   fights that write: EPBL, FWBL1 (encrypted and decrypted) and el3_mon never
+   reference `0x15860808`; BL2 only reads bits 4..7 (its own upload check, at
+   `bl2.bin+0xe4`, literal pool at `+0x2c8`); u-boot's own six setters
+   (`0xc90080a8`..`0xc9008130`, reached through `update_minform_magic`
+   `0xc9008238`) are read-modify-write of one field each, and the only full-word
+   write is `MINFORM = 0x12345678` inside the download path itself
+   (`0xc900ebbc`), after the decision.
+2. **The fork** — `tools/sboot_patch.py --normal-boot` turns the `cbz` at
+   `0xc90038f8` into an unconditional branch, which answers all seven reasons at
+   once. It costs the keypad escape, which is free here: everything runs from
+   RAM, so a power cycle boots the stock sboot from UFS again.
+
+If the normal path then fails, u-boot says so before falling back, and the
+message names the stage: `Could not do normal boot. (invalid ppi)`,
+`(DT LOAD Fail..)`, `(invalid magic)`. The panel is the only console for that,
+so photograph the screen.
+
 ## Open items
 
 - Persistent UFS boot (no USB payload) requires the OTP fuse; the bypass does not
   persist across reboot.
-- Running a live Android image (not only Download mode) over USB is unexplored.
+- Booting into Android over USB: the fork is located and both levers are built
+  (`epbl_minform_normal_probe` with a stock sboot, `epbl_android_boot_probe` with
+  `--normal-boot`), but neither has been run on hardware.
 - No verification vulnerability found in the BootROM/EPBL/monitor verify path; the
   fuse is the only known route to a persistent custom trusted key.
