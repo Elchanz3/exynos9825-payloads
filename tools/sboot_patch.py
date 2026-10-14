@@ -242,42 +242,43 @@ class Patcher:
     def patch_normal_boot(self):
         # Force the Download-vs-normal-boot fork to normal boot.
         #
-        # s5p_check_download() returns a download reason, 0 meaning "boot
-        # normally", and its single caller is
+        # The call site is
         #
         #     bl   s5p_check_download
-        #     cbz  w0, <normal boot>      <- taken only when the reason is 0
+        #     mov  w21, w0            (the reason, for do_download)
+        #     cbz  w0, <normal boot>
         #
-        # Six reasons can fire before the one we could reach from outside: the
-        # param-block requests (param[0] == 1 or 0xd), the 0xabcf magic,
-        # param[4], a pressed key, and -- last -- is_normal_booting() == 0
-        # followed by ifconn_check_jig_adc_value() == 1. That last pair is what
-        # puts a USB-booted device in Download mode: MINFORM is the reset value
-        # on a cold boot, and a cable is by definition attached. Rather than
-        # answer one reason at a time, make the fork unconditional.
+        # and six of the seven reasons it can answer are explicit requests:
+        # param[0] == 1 or 0xd, the 0xabcf magic in param[3], param[4], a
+        # pressed key. The seventh is the one a USB-booted device falls into --
+        # is_normal_booting() == 0 (MINFORM is the reset value on a cold boot)
+        # together with ifconn_check_jig_adc_value() == 1 (a cable is attached
+        # by definition, the payload arrives over it).
         #
-        # The keypad escape goes with it, which costs nothing here: everything
-        # runs from RAM, so a power cycle boots the stock sboot from UFS.
+        # Replace the CALL with `mov w0, #0` rather than making the branch
+        # unconditional. The difference matters: the normal-boot path opens
+        # with `bl get_param(w0)`, so it reads w0 as a parameter INDEX. Forcing
+        # the branch leaves the download reason in w0 and the first thing the
+        # normal path does is fetch the wrong parameter -- which is exactly how
+        # the first attempt died, silently, with a black screen. Returning 0
+        # from the call reproduces the legitimate "no reason to download" state
+        # register for register, and the keypad escape is the only thing lost.
         func = find_function_by_name_string(self.data, "s5p_check_download")
         callers = [o for o in range(0, len(self.data) - 3, 4)
                    if is_bl(self.data, o) and bl_target(self.data, o) == func]
         if len(callers) != 1:
             raise KeyError(f"s5p_check_download has {len(callers)} callers, expected 1")
-        # The compiler keeps the reason for the download call (`mov w21,w0`),
-        # so the test is a couple of instructions past the BL, not next to it.
-        site = word = None
+        site = callers[0]
+        # Confirm the shape before touching it: the test has to be a `cbz w0`
+        # within a few instructions, or this is not the fork.
         for step in range(1, 5):
-            cursor = callers[0] + 4 * step
-            candidate = u32(self.data, cursor)
-            if candidate & 0xFF00001F == 0x34000000:     # cbz w0, label
-                site, word = cursor, candidate
+            word = u32(self.data, site + 4 * step)
+            if word & 0xFF00001F == 0x34000000:          # cbz w0, label
                 break
-        if site is None:
+        else:
             raise KeyError("no `cbz w0, label` within 4 instructions of the call")
-        offset = sign_extend((word >> 5) & 0x7FFFF, 19) << 2
-        branch = 0x14000000 | ((offset >> 2) & 0x03FFFFFF)
-        self._write(site, struct.pack("<I", branch),
-                    "download fork -> normal boot")
+        self._write(site, bytes.fromhex("00 00 80 52"),   # mov w0, #0
+                    "s5p_check_download -> 0")
 
     def patch_check_signature(self):
         self.stub_function_at_string(
