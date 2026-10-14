@@ -390,6 +390,76 @@ message names the stage: `Could not do normal boot. (invalid ppi)`,
 `(DT LOAD Fail..)`, `(invalid magic)`. The panel is the only console for that,
 so photograph the screen.
 
+## What happens after the fork (2026-10-14, hardware)
+
+The fork patch works -- the device stopped going to Download -- but the boot
+does not reach Android. In order, with what each run showed:
+
+| sboot | result |
+|---|---|
+| stock + MINFORM = 'N','N' | Odin. MINFORM alone does not decide it |
+| fork forced by `cbz` -> `b` | black screen, no USB |
+| same, battery in and battery out | identical, so not the battery/LPM guard |
+| fork forced by `bl` -> `mov w0,#0` | blue "USB RECOVERY MODE", then off |
+| + prompt stubbed, 4-byte minimal, with and without the eng identity | black screen |
+
+Two corrections to earlier readings, both from the disassembly:
+
+**Forcing the branch was wrong.** The call site is `bl s5p_check_download ; mov
+w21,w0 ; cbz w0,<normal>`, and the normal path opens with `bl get_param` using
+**w0 as the parameter index**. Making the branch unconditional leaves the
+download reason in w0, so the first thing the normal path does is read the
+wrong parameter. Replacing the CALL with `mov w0,#0` reproduces the legitimate
+state register for register; that is what `--normal-boot` does now.
+
+**The blue screen is not the failure handler.** Both outcomes of the
+secure-payload load converge:
+
+```
+0xc900345c   mov w0,#0x20 ; bl 0xc90016dc      load secure payload
+0xc9003464   cbz x0, 0xc90034f4                 0 = loaded
+             printf("Fail to load Secure Payload!! [ret = %lx]")
+0xc90034f4   printf("%s: Load done.") ; [0xc917d030] = 1 ; b 0xc9003478
+0xc9003478   "[Debug Info.]", " SecureOS : %d (MB)"
+0xc90034d4   b 0xc9008b4c                       tail call, both paths
+```
+
+`0xc9008b4c` reads DRAM `0x80000000` and `0x80008010`, returns 0 when neither
+holds a magic, and only otherwise draws
+
+```
+UP KEY : NORMAL BOOTING / DOWN KEY : DOWNLOAD MODE / USB RECOVERY MODE
+```
+
+waits for a key and writes `0x66265999` back to `0x80000000` on the way out. So
+it arms itself: one run that lands there hijacks every run after it, because a
+bench board on USB power only warm-resets and DRAM keeps the word. Whether the
+secure payload actually failed is still unknown -- the print goes to a console
+this board does not expose.
+
+### Reading anything back is the open problem
+
+- The panel is the only console, and `printf` does not reach it this early.
+- EP1 belongs to the chain once BL2 takes over.
+- **Do not send on EP1 from the FWBL1 hook.** A 16-byte report added there
+  broke the BL2 write in three runs out of three, at exactly that point; the
+  packet desynchronises the transfer the host is in the middle of. Reverted.
+- `epbl_inform_dump_probe` (dump `0x15860800..+0x100`) came back with a
+  corrupted length (`size=0x17ffff1d`) and transferred nothing. EPBL scribbles
+  near the probe record on the cold path, which is the likely cause.
+- `sboot_patch.py --diag-secure-payload` does the recording half: it stubs the
+  prompt and replaces the four instructions that print the failure with
+  `movz x1,#0x818 ; movk x1,#0x1586,lsl#16 ; str w0,[x1] ; nop`, parking the
+  return code in PMU INFORM `0x15860818`. That register is untouched by this
+  stage and lives in the always-on domain, so a key-combo reset keeps it and
+  only pulling the battery clears it. The readback is what still needs a
+  mechanism.
+
+An idea that needs no readback at all: the prompt draws on the panel, so
+branching to its drawing code from a checkpoint in the normal-boot path turns
+"did it get this far?" into a blue screen appearing or not. One four-byte patch
+per checkpoint, one run per question, no console required.
+
 ## Open items
 
 - Persistent UFS boot (no USB payload) requires the OTP fuse; the bypass does not
