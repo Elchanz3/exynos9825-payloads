@@ -339,6 +339,10 @@ def main(argv=None):
                     help="also relax signature / warranty / RPMB checks")
     ap.add_argument("--normal-boot", action="store_true",
                     help="force the Download-vs-normal-boot fork to normal boot")
+    ap.add_argument("--no-eng", action="store_true",
+                    help="skip the engineering-identity patches (have_this_mode, "
+                         "etc_market/etc_development), leaving the unit reporting "
+                         "as the commercial device it is")
     ap.add_argument("--dry-run", action="store_true",
                     help="locate and report patches without writing")
     args = ap.parse_args(argv)
@@ -346,11 +350,13 @@ def main(argv=None):
     data = bytearray(open(args.image, "rb").read())
     p = Patcher(data, dry_run=args.dry_run)
 
-    p.patch_have_this_mode()
-    p.patch_eng_efuse_bits()
+    if not args.no_eng:
+        p.patch_have_this_mode()
+        p.patch_eng_efuse_bits()
     if args.normal_boot:
         p.patch_normal_boot()
-        p.patch_ignore_magic_code()
+        if not args.no_eng:
+            p.patch_ignore_magic_code()
     if args.all:
         p.patch_check_signature()
         p.patch_warranty()
