@@ -11,9 +11,11 @@ contain the one its build selected.
 usage:
   check_custom_key.py build/epbl_custom_key_hmac_probe.bin   [--keys DIR]
   check_custom_key.py build/epbl_custom_key_efuse_probe.bin  [--keys DIR]
+  check_custom_key.py build/epbl_boot_ufs_plain_probe.bin --candidate efuse
 
 Which candidate a payload is expected to carry is taken from its filename
-(..._hmac_... or ..._efuse_...). Exit 0 only if it matches.
+(..._hmac_... or ..._efuse_...), unless --candidate states it explicitly.
+Exit 0 only if it matches.
 """
 
 import argparse
@@ -68,6 +70,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("payload", type=Path, nargs="+")
     ap.add_argument("--keys", type=Path, default=DEFAULT_KEYS)
+    ap.add_argument(
+        "--candidate",
+        choices=("hmac", "efuse"),
+        help="expected key form for payload names that do not encode it",
+    )
     args = ap.parse_args(argv)
 
     values = candidates(args.keys)
@@ -80,7 +87,9 @@ def main(argv=None):
     for path in args.payload:
         blob = path.read_bytes()
         name = path.name
-        if "_hmac_" in name:
+        if args.candidate is not None:
+            want = args.candidate
+        elif "_hmac_" in name:
             want = "hmac"
         elif "_efuse_" in name:
             want = "efuse"

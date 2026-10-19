@@ -86,11 +86,44 @@ EPBL_ABORT_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC = b"EPAPFAIL"
 EPBL_ABORT_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC = b"EPAFFAIL"
 EPBL_KEY_STATE_MAGIC = b"EKSTATE!"
 EPBL_KEY_DUMP_MAGIC = b"KEXDUM!!"
+EPBL_PMU_TRACE_MAGIC = b"PMUTRACE"
+EPBL_RETENTION_MARK_MAGIC = b"RTNMARK!"
+EPBL_RETENTION_READ_MAGIC = b"RTNREAD!"
+EPBL_UFS_LIVE_FWBL1_ENTRY_MAGIC = b"UFWENTR!"
+EPBL_UFS_LIVE_FWBL1_DECRYPT_MAGIC = b"UFWDECR!"
+EPBL_UFS_LIVE_PRE_HANDOFF_MAGIC = b"UFSPRE!!"
+EPBL_UFS_LIVE_HANDOFF_MAGIC = b"UFSHAND!"
+EPBL_UFS_LIVE_FWBL1_INIT_MAGIC = b"UFWINIT!"
+EPBL_UFS_LIVE_FWBL1_LOG1_MAGIC = b"UFWLOG1!"
+EPBL_UFS_LIVE_FWBL1_CFG1_MAGIC = b"UFWCFG1!"
+EPBL_UFS_LIVE_FWBL1_CFG2_MAGIC = b"UFWCFG2!"
+EPBL_UFS_LIVE_FWBL1_EL3_MAGIC = b"UFWEL3!!"
+EPBL_UFS_LIVE_FWBL1_MAIN_MAGIC = b"UFWMAIN!"
+EPBL_UFS_LIVE_BL2_ENTRY_MAGIC = b"UBL2ENT!"
+EPBL_UFS_LIVE_BL2_MISS_MAGIC = b"UBL2MISS"
+EPBL_UFS_LIVE_BL2_PRE_MAGIC = b"UBL2PRE!"
+EPBL_UFS_LIVE_BL2_CONTEXT_MAGIC = b"UBL2CTX!"
 EPBL_BOOT_UFS_LOADED_MAGIC = b"UFSLOAD!"
 EPBL_BOOT_UFS_META_MAGIC = b"UFSMETA!"
 UBSTAGE_MAGIC = b"UBSTAGE!"
 EPBL_BOOT_UFS_PASS_MAGIC = b"EPUPASS!"
 EPBL_BOOT_UFS_FAIL_MAGIC = b"EPUFAIL!"
+EPBL_UFS_NATIVE_READY_MAGIC = b"EUNRDY!!"
+EPBL_UFS_NATIVE_PASS_MAGIC = b"EUNPASS!"
+EPBL_UFS_NATIVE_FAIL_MAGIC = b"EUNFAIL!"
+EPBL_UFS_NATIVE_VERIFY_FAIL_MAGIC = b"EUNVFAIL"
+EPBL_UFS_NATIVE_POSTLOAD_FAIL_MAGIC = b"EUNPFAIL"
+EPBL_UFS_NATIVE_FINALIZE_FAIL_MAGIC = b"EUNFFAIL"
+EPBL_UFS_NATIVE_PRE_MAGIC = b"EUNPRE!!"
+EPBL_UFS_NATIVE_RETURN_MAGIC = b"EUNRET!!"
+EPBL_UFS_NATIVE_POSTLOAD_MAGIC = b"EUNPOST!"
+EPBL_UFS_NATIVE_TIMING_MAGIC = b"EUNTIME!"
+EPBL_UFS_NATIVE_FLAG_MAGIC = b"EUNFLAG!"
+EPBL_UFS_NATIVE_COLD_MAGIC = b"EUNCOLD!"
+EPBL_UFS_NATIVE_FORCE_MAGIC = b"EUNFORC!"
+EPBL_UFS_NATIVE_TRIPLE_MAGICS = (
+    b"EUN3REC0", b"EUN3REC1", b"EUN3REC2", b"EUN3REC3",
+)
 EPBL_COLD_CONTEXT_STAGED_READY_MAGIC = b"EPCRDY!!"
 EPBL_COLD_CONTEXT_STAGED_PASS_MAGIC = b"EPCPASS!"
 EPBL_COLD_CONTEXT_STAGED_TRAP_MAGIC = b"EPCTRAP!"
@@ -306,6 +339,181 @@ EPBL_KEY_DUMP_FIELDS = (
     "KEY  bytes 0x10-0x17",
     "KEY  bytes 0x18-0x1f",
     "CurrentEL",
+)
+
+EPBL_PMU_TRACE_FIELDS = (
+    "status",
+    "PMU scratch 0x15860800 (UFS/u-boot marker)",
+    "PMU scratch 0x15860804 (FWBL1/owner marker)",
+    "PMU MINFORM 0x15860808",
+    "PMU download magic 0x1586080c",
+    "PMU scratch 0x15860810 (FWBL1 decrypted)",
+    "PMU scratch 0x15860814",
+    "PMU scratch 0x15860818",
+    "PMU scratch 0x1586081c",
+    "CurrentEL",
+)
+
+EPBL_RETENTION_FIELDS = (
+    "status",
+    "PMU scratch 0x15860800",
+    "PMU scratch 0x15860804",
+    "iRAM scratch 0x02038800",
+    "iRAM scratch 0x02038808",
+    "PMU MINFORM 0x15860808",
+    "PMU download magic 0x1586080c",
+    "CurrentEL",
+    "iRAM scratch base",
+    "reserved",
+)
+
+EPBL_UFS_NATIVE_PRE_FIELDS = (
+    "status",
+    "boot state before storage force",
+    "boot state immediately before EPBL",
+    "BootROM key-selector return",
+    "post-load verifier return",
+    "MMIO 0x15860990",
+    "PTR_IS_SECUREBOOT 0x020200a8",
+    "dispatch state 0x02020128",
+    "SCTLR_EL3 before I-cache disable",
+    "stack pointer before EPBL",
+)
+
+EPBL_UFS_NATIVE_RETURN_FIELDS = (
+    "status",
+    "EPBL return value x0",
+    "boot state after EPBL return",
+    "MMIO 0x15860990",
+    "iRAM 0x02020120",
+    "iRAM 0x02020124",
+    "iRAM 0x02020128",
+    "PTR_IS_SECUREBOOT 0x020200a8",
+    "CurrentEL after EPBL return",
+    "SCTLR_EL3 after EPBL return",
+)
+
+EPBL_UFS_NATIVE_POSTLOAD_FIELDS = (
+    "status",
+    "BootROM key-selector return",
+    "post-load verifier return",
+    "PTR_SECUREBOOT_KEY after custom redirect",
+    "post-load state 0x0202007c",
+    "post-load timing start 0x02020084",
+    "post-load timing end 0x02020088",
+    "SEC0 0x10001000",
+    "boot state 0x02020064",
+    "CurrentEL after post-load verification",
+)
+
+EPBL_UFS_NATIVE_TIMING_FIELDS = (
+    "status",
+    "BootROM key-selector return",
+    "post-load verifier return",
+    "entry timing delta 0x0202008c",
+    "boot flags 0x02020070 before final update",
+    "PTR_SECUREBOOT_KEY after custom redirect",
+    "EPBL dispatch literal 0x02022098",
+    "EPBL first qword at 0x02022010",
+    "SCTLR_EL3 after entry-timing helper",
+    "CurrentEL after entry-timing helper",
+)
+
+EPBL_UFS_NATIVE_FLAG_FIELDS = (
+    "status",
+    "BootROM key-selector return",
+    "post-load verifier return",
+    "entry timing delta 0x0202008c",
+    "boot flags 0x02020070 after final update",
+    "PTR_SECUREBOOT_KEY after custom redirect",
+    "EPBL dispatch literal 0x02022098",
+    "packed EPBL entry/hook instructions",
+    "SCTLR_EL3 after boot-flag helper",
+    "CurrentEL after boot-flag helper",
+)
+
+EPBL_UFS_NATIVE_COLD_FIELDS = (
+    "status",
+    "BootROM key-selector return",
+    "post-load verifier return",
+    "original EPBL warm/cold gate 0x15860990",
+    "original EPBL dispatch state 0x02020128",
+    "boot flags 0x02020070",
+    "original EPBL gate branch at 0x02022028",
+    "patched EPBL gate branch at 0x02022028",
+    "EPBL dispatch literal 0x02022098",
+    "CurrentEL after cold-path override",
+)
+
+EPBL_UFS_NATIVE_FORCE_FIELDS = (
+    "status",
+    "BootROM key-selector return",
+    "post-load verifier return",
+    "boot flags 0x02020070",
+    "original EPBL gate-load instruction at 0x02022018",
+    "patched direct-cold branch at 0x02022018",
+    "EPBL dispatch literal 0x02022098",
+    "EPBL entry instruction at 0x02022010",
+    "SCTLR_EL3 after force-cold override",
+    "CurrentEL after force-cold override",
+)
+
+EPBL_UFS_NATIVE_TRIPLE_FIELDS = (
+    "status",
+    "BootROM key-selector return",
+    "post-load verifier return",
+    "EPBL warm/cold gate 0x15860990",
+    "EPBL dispatch state 0x02020128",
+    "boot flags 0x02020070",
+    "packed EPBL entry 0x02022010 / gate-load 0x02022018",
+    "packed EPBL gate branch 0x02022028 / dispatch literal 0x02022098",
+    "SCTLR_EL3",
+    "CurrentEL",
+)
+
+EPBL_UFS_LIVE_FIELDS = (
+    "status",
+    "checkpoint",
+    "CurrentEL",
+)
+
+EPBL_UFS_BL2_ENTRY_FIELDS = (
+    "status",
+    "checkpoint",
+    "CurrentEL after ERET",
+    "saved ELR_EL3",
+    "saved SPSR_EL3",
+    "saved SCR_EL3",
+    "FWBL1 exception-frame SP",
+    "redirected ELR_EL3",
+    "BL2 first qword",
+    "CurrentEL before ERET",
+)
+
+EPBL_UFS_BL2_PRE_FIELDS = (
+    "status",
+    "checkpoint",
+    "CurrentEL before context restore",
+    "saved ELR_EL3",
+    "saved SPSR_EL3",
+    "saved SCR_EL3",
+    "FWBL1 exception-frame SP",
+    "first qword at saved ELR",
+    "BL2 first qword",
+    "SCTLR_EL3",
+)
+
+EPBL_UFS_BL2_CONTEXT_FIELDS = (
+    "status",
+    "checkpoint",
+    "CurrentEL before context restore",
+    "saved ELR_EL3",
+    "saved SPSR_EL3",
+    "saved SCR_EL3",
+    "current SP before SPSel switch",
+    "SP_EL3 context-frame base",
+    "first qword at saved ELR",
+    "SPSel before context restore",
 )
 
 EPBL_KEY_STATE_FIELDS = (
@@ -580,6 +788,7 @@ def decode_record(data: bytes):
         fields = EPBL_FIELDS
     elif magic in (
         EPBL_ABORT_CONTEXT_STAGED_FAIL_MAGIC,
+        EPBL_UFS_NATIVE_FAIL_MAGIC,
         EPBL_COLD_CONTEXT_STAGED_FAIL_MAGIC,
         EPBL_FWBL1_BOUNDARY_STAGED_FAIL_MAGIC,
     ) and struct.unpack_from("<Q", data, 0x10)[0] in (0x200, 0x201, 0x202):
@@ -623,6 +832,11 @@ def decode_record(data: bytes):
         EPBL_ABORT_CONTEXT_STAGED_VERIFY_FAIL_MAGIC,
         EPBL_ABORT_CONTEXT_STAGED_POSTLOAD_FAIL_MAGIC,
         EPBL_ABORT_CONTEXT_STAGED_FINALIZE_FAIL_MAGIC,
+        EPBL_UFS_NATIVE_PASS_MAGIC,
+        EPBL_UFS_NATIVE_FAIL_MAGIC,
+        EPBL_UFS_NATIVE_VERIFY_FAIL_MAGIC,
+        EPBL_UFS_NATIVE_POSTLOAD_FAIL_MAGIC,
+        EPBL_UFS_NATIVE_FINALIZE_FAIL_MAGIC,
         EPBL_COLD_CONTEXT_STAGED_PASS_MAGIC,
         EPBL_COLD_CONTEXT_STAGED_FAIL_MAGIC,
         EPBL_COLD_CONTEXT_STAGED_VERIFY_FAIL_MAGIC,
@@ -645,8 +859,48 @@ def decode_record(data: bytes):
         fields = EPBL_BOOT_UFS_META_FIELDS
     elif magic == EPBL_BOOT_UFS_LOADED_MAGIC:
         fields = EPBL_BOOT_UFS_LOADED_FIELDS
+    elif magic == EPBL_UFS_NATIVE_PRE_MAGIC:
+        fields = EPBL_UFS_NATIVE_PRE_FIELDS
+    elif magic == EPBL_UFS_NATIVE_RETURN_MAGIC:
+        fields = EPBL_UFS_NATIVE_RETURN_FIELDS
+    elif magic == EPBL_UFS_NATIVE_POSTLOAD_MAGIC:
+        fields = EPBL_UFS_NATIVE_POSTLOAD_FIELDS
+    elif magic == EPBL_UFS_NATIVE_TIMING_MAGIC:
+        fields = EPBL_UFS_NATIVE_TIMING_FIELDS
+    elif magic == EPBL_UFS_NATIVE_FLAG_MAGIC:
+        fields = EPBL_UFS_NATIVE_FLAG_FIELDS
+    elif magic == EPBL_UFS_NATIVE_COLD_MAGIC:
+        fields = EPBL_UFS_NATIVE_COLD_FIELDS
+    elif magic == EPBL_UFS_NATIVE_FORCE_MAGIC:
+        fields = EPBL_UFS_NATIVE_FORCE_FIELDS
+    elif magic in EPBL_UFS_NATIVE_TRIPLE_MAGICS:
+        fields = EPBL_UFS_NATIVE_TRIPLE_FIELDS
     elif magic == EPBL_KEY_DUMP_MAGIC:
         fields = EPBL_KEY_DUMP_FIELDS
+    elif magic == EPBL_PMU_TRACE_MAGIC:
+        fields = EPBL_PMU_TRACE_FIELDS
+    elif magic in (EPBL_RETENTION_MARK_MAGIC, EPBL_RETENTION_READ_MAGIC):
+        fields = EPBL_RETENTION_FIELDS
+    elif magic == EPBL_UFS_LIVE_BL2_ENTRY_MAGIC:
+        fields = EPBL_UFS_BL2_ENTRY_FIELDS
+    elif magic == EPBL_UFS_LIVE_BL2_PRE_MAGIC:
+        fields = EPBL_UFS_BL2_PRE_FIELDS
+    elif magic == EPBL_UFS_LIVE_BL2_CONTEXT_MAGIC:
+        fields = EPBL_UFS_BL2_CONTEXT_FIELDS
+    elif magic in (
+        EPBL_UFS_LIVE_FWBL1_ENTRY_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_DECRYPT_MAGIC,
+        EPBL_UFS_LIVE_PRE_HANDOFF_MAGIC,
+        EPBL_UFS_LIVE_HANDOFF_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_INIT_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_LOG1_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_CFG1_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_CFG2_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_EL3_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_MAIN_MAGIC,
+        EPBL_UFS_LIVE_BL2_MISS_MAGIC,
+    ):
+        fields = EPBL_UFS_LIVE_FIELDS
     elif magic == EPBL_KEY_STATE_MAGIC:
         fields = EPBL_KEY_STATE_FIELDS
     elif magic in (EPBL_BOOT_UFS_PASS_MAGIC, EPBL_BOOT_UFS_FAIL_MAGIC):
@@ -782,7 +1036,7 @@ def decode_record(data: bytes):
         print("   0x10df here, which fits none of them, so they are not decoded)")
         print(f"  slots 0x120/0x124/0x128 = 0x{values[6]:08x} / 0x{values[7]:08x} "
               f"/ 0x{values[8]:08x}  (unidentified on 9825)")
-        return None
+        return True
 
     if magic == EPBL_BOOT_UFS_LOADED_MAGIC:
         print(f"  UFS load return      = {values[1]} ({'OK' if values[1] == 1 else 'FAILED'})")
@@ -807,6 +1061,272 @@ def decode_record(data: bytes):
         print("  sboot itself, and the BootROM USB link goes away with it")
         return None
 
+    if magic == EPBL_UFS_NATIVE_PRE_MAGIC:
+        selected_device = (values[2] >> 4) & 0xF
+        mmio_path = "warm dispatcher" if values[5] == 1 else "cold initializer"
+        icache_enabled = bool(values[8] & (1 << 12))
+        valid = values[0] == 1 and selected_device == 1 and values[4] == 1
+        print(
+            "  boot-device selection = "
+            f"device {selected_device} "
+            f"({'storage' if selected_device == 1 else 'unexpected'})"
+        )
+        print(f"  EPBL entry path       = {mmio_path} (MMIO value 0x{values[5]:x})")
+        if values[5] == 1:
+            print("  dispatcher warning   = 0x02020128 is consumed before the cold path initializes it")
+        else:
+            print("  dispatcher note      = the cold path should initialize 0x02020128 itself")
+        print(f"  PTR_IS_SECUREBOOT    = 0x{values[6]:08x}")
+        print(f"  pre-entry dispatch    = 0x{values[7]:08x}")
+        print(
+            "  EL3 I-cache before cut = "
+            f"{'enabled' if icache_enabled else 'disabled'}; "
+            "the payload disables it after this record"
+        )
+        print(f"  native snapshot      = {'PASS' if valid else 'FAIL'}")
+        return valid
+
+    if magic == EPBL_UFS_NATIVE_RETURN_MAGIC:
+        print("  *** the authentic EPBL returned instead of continuing into FWBL1/BL2 ***")
+        print("  return handling      = captured by the diagnostic sentinel; BootROM 0x250 was not used")
+        print(f"  return value         = 0x{values[1]:x}")
+        print(f"  boot state           = 0x{values[2]:08x}")
+        print(f"  MMIO path selector   = 0x{values[3]:08x}")
+        print(
+            "  iRAM 0x120/124/128   = "
+            f"0x{values[4]:08x} / 0x{values[5]:08x} / 0x{values[6]:08x}"
+        )
+        print("  native EPBL handoff  = FAIL")
+        return False
+
+    if magic == EPBL_UFS_NATIVE_POSTLOAD_MAGIC:
+        direct_key = 0x02020000 <= values[3] < 0x02040000
+        passed = values[0] == 1 and values[2] == 1 and direct_key
+        print(f"  key selector return  = 0x{values[1]:x}")
+        print(
+            f"  post-load verifier   = 0x{values[2]:x} "
+            f"({'success' if values[2] == 1 else 'failure'})"
+        )
+        print(
+            f"  verification key ptr = 0x{values[3]:08x} "
+            f"({'custom iRAM key' if direct_key else 'unexpected'})"
+        )
+        print(
+            "  timing words          = "
+            f"0x{values[5]:08x} -> 0x{values[6]:08x}"
+        )
+        print(f"  native post-load     = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic == EPBL_UFS_NATIVE_TIMING_MAGIC:
+        direct_key = 0x02020000 <= values[5] < 0x02040000
+        entry_ok = values[7] & 0xFFFFFFFF == 0x14000002
+        dispatch_ok = values[6] == 0x02020128
+        passed = (
+            values[0] == 1
+            and values[1] == 1
+            and values[2] == 1
+            and direct_key
+            and entry_ok
+            and dispatch_ok
+        )
+        print(f"  key selector return  = 0x{values[1]:x}")
+        print(f"  post-load verifier   = 0x{values[2]:x}")
+        print(f"  entry timing delta   = 0x{values[3]:08x}")
+        print(f"  boot flags before set = 0x{values[4]:08x}")
+        print(
+            f"  verification key ptr = 0x{values[5]:08x} "
+            f"({'custom iRAM key' if direct_key else 'unexpected'})"
+        )
+        print(
+            f"  EPBL dispatch literal = 0x{values[6]:08x} "
+            f"({'expected' if dispatch_ok else 'unexpected'})"
+        )
+        print(
+            f"  EPBL first instruction = 0x{values[7] & 0xFFFFFFFF:08x} "
+            f"({'expected' if entry_ok else 'unexpected'})"
+        )
+        print(f"  native entry timing  = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic == EPBL_UFS_NATIVE_FLAG_MAGIC:
+        direct_key = 0x02020000 <= values[5] < 0x02040000
+        final_flag = bool(values[4] & 0x00800000)
+        dispatch_ok = values[6] == 0x02020128
+        entry_insn = values[7] & 0xFFFFFFFF
+        hook_insn = values[7] >> 32
+        entry_ok = entry_insn == 0x14000002
+        hook_ok = hook_insn == 0x580002D4
+        passed = (
+            values[0] == 1
+            and values[1] == 1
+            and values[2] == 1
+            and final_flag
+            and direct_key
+            and dispatch_ok
+            and entry_ok
+            and hook_ok
+        )
+        print(f"  key selector return  = 0x{values[1]:x}")
+        print(f"  post-load verifier   = 0x{values[2]:x}")
+        print(f"  entry timing delta   = 0x{values[3]:08x}")
+        print(
+            f"  boot flags after set = 0x{values[4]:08x} "
+            f"({'final bit present' if final_flag else 'final bit missing'})"
+        )
+        print(
+            f"  verification key ptr = 0x{values[5]:08x} "
+            f"({'custom iRAM key' if direct_key else 'unexpected'})"
+        )
+        print(
+            f"  EPBL dispatch literal = 0x{values[6]:08x} "
+            f"({'expected' if dispatch_ok else 'unexpected'})"
+        )
+        print(
+            f"  EPBL entry/hook      = 0x{entry_insn:08x} / 0x{hook_insn:08x} "
+            f"({'expected' if entry_ok and hook_ok else 'unexpected'})"
+        )
+        print(f"  native boot flag     = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic == EPBL_UFS_NATIVE_COLD_MAGIC:
+        gate = values[3] & 0xFFFFFFFF
+        state = values[4] & 0xFFFFFFFF
+        warm_target = (state + 0x10) & 0xFFFFFFFF
+        final_flag = bool(values[5] & 0x00800000)
+        original_ok = values[6] == 0x54000041
+        patched_ok = values[7] == 0x14000002
+        dispatch_ok = values[8] == 0x02020128
+        passed = (
+            values[0] == 1
+            and values[1] == 1
+            and values[2] == 1
+            and final_flag
+            and original_ok
+            and patched_ok
+            and dispatch_ok
+            and values[9] == 0xC
+        )
+        if gate == 1:
+            stock_path = "warm"
+        else:
+            stock_path = "cold"
+        target_kind = (
+            "FWBL1 entry"
+            if warm_target == 0x02026010
+            else "outside expected FWBL1 entry"
+        )
+        print(f"  original gate value  = 0x{gate:08x} ({stock_path} path)")
+        print(f"  original state base  = 0x{state:08x}")
+        print(
+            f"  original warm target = 0x{warm_target:08x} "
+            f"({target_kind})"
+        )
+        print(
+            f"  boot flags           = 0x{values[5]:08x} "
+            f"({'final bit present' if final_flag else 'final bit missing'})"
+        )
+        print(
+            f"  gate branch          = 0x{values[6]:08x} -> "
+            f"0x{values[7]:08x} "
+            f"({'cold override installed' if original_ok and patched_ok else 'unexpected'})"
+        )
+        print(
+            f"  EPBL dispatch literal = 0x{values[8]:08x} "
+            f"({'expected' if dispatch_ok else 'unexpected'})"
+        )
+        print(f"  native cold override = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic in EPBL_UFS_NATIVE_TRIPLE_MAGICS:
+        position = EPBL_UFS_NATIVE_TRIPLE_MAGICS.index(magic)
+        where = {
+            0: "after the 0x18768 entry-timing helper, WITHOUT the suspect reads",
+            1: "after the 0x18768 entry-timing helper (EUNTIME! position)",
+            2: "after the 0x16a10 boot-flag helper (EUNFLAG! position)",
+            3: "after the native entry validation (EUNPRE!/EUNCOLD!/EUNFORC! position)",
+        }[position]
+        baseline = position == 0
+        gate = values[3]
+        entry_insn = values[6] & 0xFFFFFFFF
+        hook_insn = values[6] >> 32
+        gate_branch = values[7] & 0xFFFFFFFF
+        dispatch = values[7] >> 32
+        epbl_intact = (
+            entry_insn == 0x14000002
+            and hook_insn == 0x580002D4
+            and gate_branch == 0x54000041
+        )
+        passed = (
+            values[0] == 1
+            and values[1] == 1
+            and values[2] == 1
+            and (position < 2 or bool(values[5] & 0x00800000))
+            and dispatch == 0x02020128
+            and epbl_intact
+            and values[9] == 0xC
+        )
+        print(f"  position             = {position} of 3, {where}")
+        print(f"  key selector return  = 0x{values[1]:x}")
+        print(f"  post-load verifier   = 0x{values[2]:x}")
+        if baseline:
+            print("  warm/cold gate       = NOT READ (baseline record)")
+            print("  dispatch state       = NOT READ (baseline record)")
+        else:
+            print(
+                f"  warm/cold gate       = 0x{gate:08x} "
+                f"({'warm path' if gate == 1 else 'cold path'})"
+            )
+            print(f"  dispatch state       = 0x{values[4]:08x}")
+        print(f"  boot flags           = 0x{values[5]:08x}")
+        print(
+            f"  EPBL entry/gate-load = 0x{entry_insn:08x} / 0x{hook_insn:08x} "
+            f"({'authentic' if epbl_intact else 'MODIFIED'})"
+        )
+        print(f"  EPBL gate branch     = 0x{gate_branch:08x}")
+        print(f"  EPBL dispatch literal = 0x{dispatch:08x}")
+        print(f"  SCTLR_EL3            = 0x{values[8]:08x}")
+        print(f"  triple record {position}      = {'PASS' if passed else 'FAIL'}")
+        return passed
+
+    if magic == EPBL_UFS_NATIVE_FORCE_MAGIC:
+        final_flag = bool(values[3] & 0x00800000)
+        original_ok = values[4] == 0x580002D4
+        patched_ok = values[5] == 0x14000006
+        dispatch_ok = values[6] == 0x02020128
+        entry_ok = values[7] == 0x14000002
+        passed = (
+            values[0] == 1
+            and values[1] == 1
+            and values[2] == 1
+            and final_flag
+            and original_ok
+            and patched_ok
+            and dispatch_ok
+            and entry_ok
+            and values[9] == 0xC
+        )
+        print(
+            f"  boot flags           = 0x{values[3]:08x} "
+            f"({'final bit present' if final_flag else 'final bit missing'})"
+        )
+        print(
+            f"  gate-load instruction = 0x{values[4]:08x} -> "
+            f"0x{values[5]:08x} "
+            f"({'direct cold entry installed' if original_ok and patched_ok else 'unexpected'})"
+        )
+        print(
+            f"  EPBL dispatch literal = 0x{values[6]:08x} "
+            f"({'expected' if dispatch_ok else 'unexpected'})"
+        )
+        print(
+            f"  EPBL entry instruction = 0x{values[7]:08x} "
+            f"({'expected' if entry_ok else 'unexpected'})"
+        )
+        print("  warm-state MMIO read = SKIPPED")
+        print(f"  native force cold    = {'PASS' if passed else 'FAIL'}")
+        return passed
+
     if magic == EPBL_KEY_DUMP_MAGIC:
         key2 = b"".join(values[i].to_bytes(8, "little") for i in range(1, 5))
         key = b"".join(values[i].to_bytes(8, "little") for i in range(5, 9))
@@ -820,9 +1340,261 @@ def decode_record(data: bytes):
             match = key2 == want
             print(f"  expected KEY2 = {want.hex()}")
             print(f"  KEY2 matches expected = {'YES' if match else 'NO'}")
-            return None if match else False
+            return match
         print("  (set EXPECT_KEY2=<64 hex chars> to compare against a value)")
-        return None
+        return True
+
+    if magic == EPBL_PMU_TRACE_MAGIC:
+        if values[1] == 0x31534255 and values[2] == 0x314E574F:
+            print("  u-boot entry marker       = REACHED (UBS1)")
+            print("  u-boot owner marker       = REACHED (OWN1)")
+            print("  trace result          = full u-boot entry trampoline executed")
+            return True
+
+        expected = (
+            (values[1], 0x31534655, "UFS handoff", "UFS1"),
+            (values[2], 0x31425746, "FWBL1 shim entry", "FWB1"),
+            (values[5], 0x31445746, "FWBL1 self-decrypt return", "FWD1"),
+        )
+        reached = []
+        for value, marker, label, tag in expected:
+            match = value == marker
+            print(f"  {label:<25} = {'REACHED' if match else 'marker absent'} "
+                  f"(0x{value:08x}, expected {tag})")
+            reached.append(match)
+        if reached == [True, True, True]:
+            print("  trace result          = EPBL entered FWBL1 and FWBL1 returned from self-decrypt")
+        elif reached[:2] == [True, True]:
+            print("  trace result          = FWB1 present; FWD1 absent or cleared")
+        elif reached[0]:
+            print("  trace result          = UFS1 present; later markers absent or cleared")
+        else:
+            print("  trace result          = inconclusive: markers were not written or were cleared")
+        return True
+
+    if magic in (EPBL_RETENTION_MARK_MAGIC, EPBL_RETENTION_READ_MAGIC):
+        expected_pmu = (0x31434D50, 0x32434D50)
+        expected_iram = (0x314C41434D415249, 0x324C41434D415249)
+        pmu_retained = tuple(values[1:3]) == expected_pmu
+        iram_retained = tuple(values[3:5]) == expected_iram
+        phase = "write/readback" if magic == EPBL_RETENTION_MARK_MAGIC else "fresh EUB read"
+        print(f"  calibration phase     = {phase}")
+        print(f"  PMU marker pair       = {'PRESENT' if pmu_retained else 'ABSENT'}")
+        print(f"  iRAM marker pair      = {'PRESENT' if iram_retained else 'ABSENT'}")
+        if magic == EPBL_RETENTION_MARK_MAGIC:
+            passed = values[0] == 1 and pmu_retained and iram_retained
+            print(f"  marker write/readback = {'PASS' if passed else 'FAIL'}")
+            return passed
+        print(
+            "  retention result      = "
+            f"PMU={'YES' if pmu_retained else 'NO'}, "
+            f"iRAM={'YES' if iram_retained else 'NO'}"
+        )
+        return True
+
+    if magic in (
+        EPBL_UFS_LIVE_FWBL1_ENTRY_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_DECRYPT_MAGIC,
+        EPBL_UFS_LIVE_PRE_HANDOFF_MAGIC,
+        EPBL_UFS_LIVE_HANDOFF_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_INIT_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_LOG1_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_CFG1_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_CFG2_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_EL3_MAGIC,
+        EPBL_UFS_LIVE_FWBL1_MAIN_MAGIC,
+        EPBL_UFS_LIVE_BL2_ENTRY_MAGIC,
+        EPBL_UFS_LIVE_BL2_MISS_MAGIC,
+        EPBL_UFS_LIVE_BL2_PRE_MAGIC,
+        EPBL_UFS_LIVE_BL2_CONTEXT_MAGIC,
+    ):
+        expected_checkpoint, label = {
+            EPBL_UFS_LIVE_FWBL1_ENTRY_MAGIC: (1, "FWBL1 shim entry"),
+            EPBL_UFS_LIVE_FWBL1_DECRYPT_MAGIC: (
+                2,
+                "FWBL1 self-decrypt return",
+            ),
+            EPBL_UFS_LIVE_PRE_HANDOFF_MAGIC: (
+                3,
+                "before the final EPBL handoff preparation; no DRAM access",
+            ),
+            EPBL_UFS_LIVE_HANDOFF_MAGIC: (
+                4,
+                "immediately before the EPBL handoff",
+            ),
+            EPBL_UFS_LIVE_FWBL1_INIT_MAGIC: (
+                5,
+                "FWBL1 early platform initialization returned",
+            ),
+            EPBL_UFS_LIVE_FWBL1_LOG1_MAGIC: (
+                6,
+                "FWBL1 checkpoint 0x3100 logger returned",
+            ),
+            EPBL_UFS_LIVE_FWBL1_CFG1_MAGIC: (
+                7,
+                "FWBL1 core and stack configuration returned",
+            ),
+            EPBL_UFS_LIVE_FWBL1_CFG2_MAGIC: (
+                8,
+                "FWBL1 secondary configuration returned",
+            ),
+            EPBL_UFS_LIVE_FWBL1_EL3_MAGIC: (
+                9,
+                "FWBL1 EL3 initialization returned",
+            ),
+            EPBL_UFS_LIVE_FWBL1_MAIN_MAGIC: (
+                10,
+                "FWBL1 startup completed; entering context restore and ERET",
+            ),
+            EPBL_UFS_LIVE_BL2_MISS_MAGIC: (
+                11,
+                "saved ELR_EL3 was not an aligned BL2 address; ERET redirect was not armed",
+            ),
+            EPBL_UFS_LIVE_BL2_ENTRY_MAGIC: (
+                12,
+                "FWBL1 ERET executed the BL2 transition trampoline",
+            ),
+            EPBL_UFS_LIVE_BL2_PRE_MAGIC: (
+                13,
+                "FWBL1 context frame captured immediately before restore and ERET",
+            ),
+            EPBL_UFS_LIVE_BL2_CONTEXT_MAGIC: (
+                14,
+                "FWBL1 SP_EL3 context frame captured before restore and ERET",
+            ),
+        }[magic]
+        if magic == EPBL_UFS_LIVE_BL2_MISS_MAGIC:
+            record_valid = (
+                values[0] == 1
+                and values[1] == expected_checkpoint
+                and values[2] == 0xC
+            )
+            print(f"  live UFS boundary     = {label}")
+            print(
+                "  mismatch record       = "
+                f"{'VALID' if record_valid else 'MALFORMED'}"
+            )
+            print("  BL2 entry hook        = FAIL")
+            return False
+
+        expected_els = (
+            (0x4, 0x8, 0xC)
+            if magic == EPBL_UFS_LIVE_BL2_ENTRY_MAGIC
+            else (0xC,)
+        )
+        passed = (
+            values[0] == 1
+            and values[1] == expected_checkpoint
+            and values[2] in expected_els
+        )
+        print(f"  live UFS boundary     = {label}")
+        if magic == EPBL_UFS_LIVE_BL2_ENTRY_MAGIC:
+            original_elr = values[3]
+            redirected_elr = values[7]
+            bl2_qword = values[8]
+            target_in_bl2 = (
+                0x02100000 <= original_elr < 0x02152000
+                and original_elr % 4 == 0
+            )
+            expected_qword = bl2_qword & 0xFFFFFFFF == 0x14000001
+            print(
+                "  original ERET target  = "
+                f"0x{original_elr:016x} "
+                f"({'BL2' if target_in_bl2 else 'outside BL2'})"
+            )
+            print(
+                "  BL2 entry word        = "
+                f"0x{bl2_qword & 0xffffffff:08x} "
+                f"({'expected' if expected_qword else 'unexpected'})"
+            )
+            print(f"  trampoline target     = 0x{redirected_elr:016x}")
+            passed = passed and target_in_bl2 and redirected_elr != 0
+        elif magic == EPBL_UFS_LIVE_BL2_PRE_MAGIC:
+            saved_elr = values[3]
+            saved_spsr = values[4]
+            target_qword = values[7]
+            bl2_qword = values[8]
+            target_in_bl2 = (
+                0x02100000 <= saved_elr < 0x02152000
+                and saved_elr % 4 == 0
+            )
+            mode = saved_spsr & 0xF
+            mode_name = {
+                0x0: "EL0t",
+                0x4: "EL1t",
+                0x5: "EL1h",
+                0x8: "EL2t",
+                0x9: "EL2h",
+                0xC: "EL3t",
+                0xD: "EL3h",
+            }.get(mode, f"unknown 0x{mode:x}")
+            expected_base = bl2_qword & 0xFFFFFFFF == 0x14000001
+            print(
+                "  saved ERET target     = "
+                f"0x{saved_elr:016x} "
+                f"({'BL2' if target_in_bl2 else 'outside BL2'})"
+            )
+            print(f"  saved execution mode = {mode_name}")
+            print(
+                "  target first word     = "
+                f"0x{target_qword & 0xffffffff:08x}"
+            )
+            print(
+                "  BL2 base word         = "
+                f"0x{bl2_qword & 0xffffffff:08x} "
+                f"({'expected' if expected_base else 'unexpected'})"
+            )
+            print("  context modification = NONE")
+            passed = passed and target_in_bl2 and expected_base
+        elif magic == EPBL_UFS_LIVE_BL2_CONTEXT_MAGIC:
+            saved_elr = values[3]
+            saved_spsr = values[4]
+            current_sp = values[6]
+            frame_sp = values[7]
+            target_qword = values[8]
+            spsel = values[9]
+            target_in_bl2 = (
+                0x02100000 <= saved_elr < 0x02152000
+                and saved_elr % 4 == 0
+            )
+            mode = saved_spsr & 0xF
+            mode_name = {
+                0x0: "EL0t",
+                0x4: "EL1t",
+                0x5: "EL1h",
+                0x8: "EL2t",
+                0x9: "EL2h",
+                0xC: "EL3t",
+                0xD: "EL3h",
+            }.get(mode, f"unknown 0x{mode:x}")
+            target_word_expected = (
+                saved_elr != 0x02100000
+                or target_qword & 0xFFFFFFFF == 0x14000001
+            )
+            print(
+                "  saved ERET target     = "
+                f"0x{saved_elr:016x} "
+                f"({'BL2' if target_in_bl2 else 'outside BL2'})"
+            )
+            print(f"  saved execution mode = {mode_name}")
+            print(f"  current SP            = 0x{current_sp:016x}")
+            print(f"  actual frame base     = 0x{frame_sp:016x} (SP_EL3)")
+            print(f"  SPSel before restore  = 0x{spsel:x}")
+            print(
+                "  target first word     = "
+                f"0x{target_qword & 0xffffffff:08x}"
+            )
+            print("  context modification = NONE")
+            passed = (
+                passed
+                and target_in_bl2
+                and frame_sp != 0
+                and frame_sp != current_sp
+                and spsel == 0
+                and target_word_expected
+            )
+        print(f"  boundary capture      = {'PASS' if passed else 'FAIL'}")
+        return True if passed else False
 
     if magic == EPBL_KEY_STATE_MAGIC:
         names = "ABCDEFG"
@@ -834,22 +1606,22 @@ def decode_record(data: bytes):
         if pred["A"] == 0 and pred["B"] == 1:
             chosen, why = 0x0001FAE0, "ROM key table (A==0 and B==1)"
         elif pred["C"] == 1 and pred["D"] == 0:
-            chosen, why = 0x0001FAE0, "ROM key table (C==1 and D==0)"
+            chosen, why = 0x10003020, "fused KEY2 slot (C==1 and D==0)"
         elif pred["E"] == 1:
             chosen, why = 0x10003000, "fused KEY slot (E==1)"
         elif pred["F"] == 1 and pred["G"] == 0:
             chosen, why = 0x0001FAE0, "ROM key table (F==1 and G==0)"
         else:
-            chosen, why = 0x10003020, "fused KEY2 slot"
+            chosen, why = 0x0001FAE0, "ROM key table (default)"
         print(f"  selector would pick  = 0x{chosen:08x}, {why}")
         print(f"  pointer the ROM left = 0x{values[3]:08x}")
         agree = values[3] == chosen
         print(f"  agreement            = {'OK' if agree else 'MISMATCH - re-read the selector'}")
-        if pred["E"] == 1:
-            print("  => E is tested before F/G, so KEY2 can never be reached while")
-            print("     E==1. If E is USE_KEY, fusing KEY2 would change nothing.")
+        if pred["C"] == 1 and pred["D"] == 0:
+            print("  => C/D selected KEY2 before the selector tested E (USE_KEY).")
         else:
-            print("  => E==0, so the F/G branch is live and KEY2 is reachable.")
+            print("  => KEY2 requires C==1 and D==0. C/D are likely the")
+            print("     USE_KEY2/BAN_KEY2 pair, but that mapping is not yet proven.")
         print(f"  KEY2 slot            = "
               f"{'still blank' if values[5] == 0 else f'0x{values[5]:08x} - already programmed?'}")
         return None if agree else False
@@ -1774,7 +2546,7 @@ class Ep1ChainReader(threading.Thread):
             if chunk:
                 self.chunks.append((time.monotonic() - self.origin, chunk))
 
-    def finish(self, listen_seconds):
+    def finish(self, listen_seconds, *, expected_disconnect=False):
         """Listen a little longer, then report text and any probe records."""
         self.join(listen_seconds)
         self.stop_event.set()
@@ -1789,7 +2561,15 @@ class Ep1ChainReader(threading.Thread):
             text = chunk.rstrip(b"\0").decode("ascii", "replace")
             print(f"[{elapsed:7.3f}s] EP1 IN 0x{len(chunk):x}: {text!r}")
         if self.error is not None:
-            print(f"EP1 IN reader stopped: {self.error}", file=sys.stderr)
+            if expected_disconnect and getattr(self.error, "errno", None) == 19:
+                print(
+                    "EP1 IN device disconnected after handoff; accepted for "
+                    "this silent mode, but this is not proof of downstream "
+                    f"boot: {self.error}",
+                    file=sys.stderr,
+                )
+            else:
+                print(f"EP1 IN reader stopped: {self.error}", file=sys.stderr)
         return records
 
 
@@ -1911,6 +2691,11 @@ def read_probe_records(device, usb_core) -> bytes:
             # which is exactly why the key-dump run needed three attempts.
             EPBL_KEY_STATE_MAGIC,
             EPBL_KEY_DUMP_MAGIC,
+            EPBL_PMU_TRACE_MAGIC,
+            EPBL_RETENTION_MARK_MAGIC,
+            EPBL_RETENTION_READ_MAGIC,
+            EPBL_UFS_LIVE_BL2_ENTRY_MAGIC,
+            EPBL_UFS_LIVE_BL2_MISS_MAGIC,
             EPBL_BOOT_UFS_META_MAGIC,
             UBSTAGE_MAGIC,
             EPBL_BOOT_UFS_PASS_MAGIC,
@@ -2651,6 +3436,12 @@ def run_live(args) -> bytes:
     if not payload.is_file():
         raise RuntimeError(f"payload not found: {payload}")
 
+    # A silent handoff intentionally creates no capture. Remove an older file
+    # before touching hardware so a failed or empty run cannot leave stale
+    # records that look as if they came from the current session.
+    if args.allow_no_records:
+        args.output.unlink(missing_ok=True)
+
     receive_payload = None
     receive_frame = None
     receive_label = None
@@ -2689,6 +3480,18 @@ def run_live(args) -> bytes:
 
         print(f"Device product: {product!r}")
 
+        if product == "Exynos9820\0":
+            exynos9825_handler = houston_dir / "modules" / "exynos9825.py"
+            if not exynos9825_handler.is_file():
+                raise RuntimeError(
+                    "Houston is missing the Exynos9825 handler introduced by PR #12: "
+                    f"{exynos9825_handler}"
+                )
+            print(
+                "Exynos9825 USB policy: Houston PR #12 handler present; "
+                "retaining the original EUB handle after ACE (no re-enumeration)"
+            )
+
         try:
             startup = bytes(device.read(0x81, 511, timeout=500))
             if startup:
@@ -2704,6 +3507,7 @@ def run_live(args) -> bytes:
             parameters["usb_struct_offset"],
         )
 
+        listener = None
         if args.receive_test_direct:
             data = run_direct_receive_probe(device, usb.core)
         elif args.receive_test:
@@ -2731,10 +3535,29 @@ def run_live(args) -> bytes:
             )
             listener = Ep1ChainReader(device, usb.core, device_seen_at)
             listener.start()
-            data = b"".join(listener.finish(args.listen_ep1))
+            data = b"".join(
+                listener.finish(
+                    args.listen_ep1,
+                    expected_disconnect=args.allow_no_records,
+                )
+            )
         else:
             data = read_probe_records(device, usb.core)
         if not data:
+            if args.allow_no_records:
+                if listener is None or listener.error is None:
+                    print(
+                        "No probe records arrived during the listen window; "
+                        "accepted because this payload uses a silent handoff. "
+                        "This is not a downstream boot PASS."
+                    )
+                else:
+                    print(
+                        "No probe records arrived before the USB device left; "
+                        "accepted because this payload uses a silent handoff. "
+                        "This is not a downstream boot PASS."
+                    )
+                return b""
             raise RuntimeError("received no probe records")
 
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -2829,6 +3652,14 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--allow-no-records",
+        action="store_true",
+        help=(
+            "with --listen-ep1, accept an intentionally silent handoff that "
+            "returns no probe record; any stale output file is removed"
+        ),
+    )
+    parser.add_argument(
         "--allow-unpinned-stages",
         action="store_true",
         help=(
@@ -2851,6 +3682,8 @@ def parse_args():
         parser.error(
             "--receive-next-file must be supplied between one and four times"
         )
+    if args.allow_no_records and not args.listen_ep1:
+        parser.error("--allow-no-records requires --listen-ep1")
     return args
 
 
@@ -2858,6 +3691,13 @@ def main() -> int:
     args = parse_args()
     try:
         data = args.decode.read_bytes() if args.decode else run_live(args)
+        if not data and args.allow_no_records and args.decode is None:
+            print(
+                "Silent handoff capture completed without a probe record; "
+                "there is no record to decode and no downstream PASS is "
+                "implied."
+            )
+            return 0
         if len(data) % RECORD_SIZE:
             raise ValueError(
                 f"capture is 0x{len(data):x} bytes, not a record multiple"

@@ -17,8 +17,9 @@ PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
 	epbl_dump_fwbl1_probe epbl_bypass_probe epbl_verify_diag_probe epbl_bootstate_probe epbl_sboot_noverify_probe \
 	epbl_minform_normal_probe epbl_android_boot_probe epbl_inform_dump_probe \
 	epbl_custom_key_hmac_probe epbl_custom_key_efuse_probe \
-	epbl_boot_ufs_probe epbl_key_state_probe epbl_boot_ufs_chain_probe epbl_key_dump_probe \
-	ubstage_hello \
+	epbl_boot_ufs_probe epbl_key_state_probe epbl_boot_ufs_chain_probe epbl_boot_ufs_plain_probe epbl_boot_ufs_silent_probe epbl_boot_ufs_native_probe epbl_boot_ufs_native_load_diag_probe epbl_boot_ufs_native_postload_diag_probe epbl_boot_ufs_native_timing_diag_probe epbl_boot_ufs_native_flag_diag_probe epbl_boot_ufs_native_cold_diag_probe epbl_boot_ufs_native_force_cold_probe epbl_boot_ufs_native_diag_probe epbl_boot_ufs_native_triple_probe epbl_boot_ufs_native_triple_stock_probe epbl_boot_ufs_native_triple_restore_probe epbl_key_dump_probe \
+	epbl_pmu_trace_probe epbl_retention_mark_probe epbl_retention_read_probe \
+	ubstage_hello ubstage_download_marker \
 	epbl_fwbl1_boundary_staged_probe \
 	epbl_dispatch_staged_probe \
 	relocation_probe \
@@ -73,6 +74,22 @@ DISASMS    := $(PAYLOADS:%=$(BUILD_DIR)/%.disasm)
 	$(BUILD_DIR)/payloads/epbl_sboot_noverify_probe.o \
 	$(BUILD_DIR)/payloads/epbl_minform_normal_probe.o \
 	$(BUILD_DIR)/payloads/epbl_inform_dump_probe.o \
+	$(BUILD_DIR)/payloads/epbl_pmu_trace_probe.o \
+	$(BUILD_DIR)/payloads/epbl_retention_mark_probe.o \
+	$(BUILD_DIR)/payloads/epbl_retention_read_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_plain_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_silent_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_load_diag_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_postload_diag_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_timing_diag_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_flag_diag_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_cold_diag_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_force_cold_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_diag_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_stock_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_restore_probe.o \
 	$(BUILD_DIR)/payloads/epbl_android_boot_probe.o \
 	$(BUILD_DIR)/payloads/epbl_fwbl1_boundary_staged_probe.o \
 	$(BUILD_DIR)/payloads/epbl_dispatch_staged_probe.o \
@@ -91,7 +108,9 @@ all: $(BINS)
 disasm: $(DISASMS)
 
 verify: all
-	@python3 tools/verify_payloads.py $(ELFS)
+	@python3 tools/verify_payloads.py $(filter-out \
+		$(BUILD_DIR)/ubstage_hello.elf \
+		$(BUILD_DIR)/ubstage_download_marker.elf,$(ELFS))
 
 $(BUILD_DIR)/common/%.o: common/%.S
 	@mkdir -p $(@D)
@@ -247,12 +266,48 @@ $(BUILD_DIR)/ubstage_hello.elf: \
 	arch/arm64/stage.ld
 	$(CC) $(LDFLAGS_STAGE) $(filter %.o,$^) -o $@
 
+# Entry trampoline injected into an otherwise complete u-boot stage. It writes
+# a PMU marker, clears MINFORM so the attached cable selects Download mode, and
+# then resumes the original stage at load+4. The installer patches its final
+# self-branch to the fixed resume address after choosing the code cave.
+$(BUILD_DIR)/payloads/ubstage_download_marker.o: \
+	payloads/ubstage_download_marker.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/ubstage_download_marker.elf: \
+	$(BUILD_DIR)/payloads/ubstage_download_marker.o \
+	arch/arm64/stage.ld
+	$(CC) $(LDFLAGS_STAGE) $(filter %.o,$^) -o $@
+
 # Read-only: dump both 32-byte OTP key slots in full.
 $(BUILD_DIR)/payloads/epbl_key_dump_probe.o: \
 	payloads/epbl_header_probe.S
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
 		-DEPBL_KEY_DUMP -c $< -o $@
+
+# Read-only: recover persistent PMU checkpoints from the previous UFS boot.
+$(BUILD_DIR)/payloads/epbl_pmu_trace_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_PMU_TRACE -c $< -o $@
+
+# Volatile retention calibration. The first probe writes known markers to PMU
+# scratch and proven FWBL1-padding iRAM; the second reads them after a fresh EUB
+# entry. This establishes which channel can carry a late-stage checkpoint.
+$(BUILD_DIR)/payloads/epbl_retention_mark_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_RETENTION_MARK -c $< -o $@
+
+$(BUILD_DIR)/payloads/epbl_retention_read_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_RETENTION_READ -c $< -o $@
 
 # Boot the chain from UFS with our custom key: only the image SOURCE changes,
 # everything downstream is the already-proven path. Needs the custom key, or
@@ -261,7 +316,146 @@ $(BUILD_DIR)/payloads/epbl_boot_ufs_chain_probe.o: \
 	payloads/epbl_header_probe.S
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
-		-DEPBL_BOOT_UFS_CHAIN -DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_TRACE \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Legacy UFS handoff used by the earlier BL2 -> u-boot diagnostics. Omitting
+# EPBL_UFS_TRACE removes the boundary records and saved-context experiments,
+# but EPBL_COLD_CONTEXT_STAGED still redirects the EPBL dispatch through
+# fwbl1_noic_entry and installs the diagnostic EL3 vector.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_plain_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Strict transport control for the same legacy shim handoff. It is identical
+# to the plain build except that it performs no EP1 IN transfer after the UFS
+# load.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_silent_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_COLD_CONTEXT_STAGED -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Native UFS handoff. Keep only the cache-safe relocation stager; do not inherit
+# EPBL_CONTEXT_STAGED, replace the EPBL dispatch literal, install an EL3 vector,
+# enter FWBL1 through a shim, or reconstruct the cold-dispatch registers. The
+# I-cache is disabled only for the freshly loaded EPBL entry; authentic FWBL1
+# restores its expected state in its own prologue.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Native post-load diagnostic. It differs from the silent native handoff only
+# by completing the existing UFSLOAD!/UFSMETA! records immediately after the
+# BootROM storage loader returns. It installs no FWBL1 or exception hook.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_load_diag_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Native post-verification diagnostic. It stays silent through 0xcc68 and the
+# key selector, then completes one EUNPOST! record immediately after 0x5b58.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_postload_diag_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF \
+		-DEPBL_UFS_NATIVE_POSTLOAD_DIAGNOSTIC -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Native entry-timing diagnostic. It completes one EUNTIME! record after the
+# stock 0x18768 helper returns and before 0x16a10 sets the final boot flag.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_timing_diag_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF \
+		-DEPBL_UFS_NATIVE_TIMING_DIAGNOSTIC -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Native boot-flag diagnostic. It completes one EUNFLAG! record after the
+# stock 0x16a10 helper returns and before the native entry validation.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_flag_diag_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF \
+		-DEPBL_UFS_NATIVE_FLAG_DIAGNOSTIC -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Native cold-path diagnostic. It records the original warm/cold gate and
+# dispatch state, then changes only the verified EPBL branch to its cold path.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_cold_diag_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF \
+		-DEPBL_UFS_NATIVE_COLD_DIAGNOSTIC -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Native force-cold attempt. It deliberately avoids reading 0x15860990 and
+# 0x02020128, verifies the authenticated first gate-load instruction, replaces
+# it with a direct branch to the original cold loader, and continues natively.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_force_cold_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF \
+		-DEPBL_UFS_NATIVE_FORCE_COLD -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Three identical read-only records at three positions of the same native
+# preparation. Separates "which operation closes EP1" from "how far the
+# channel survives": every earlier bisect changed the operation and the
+# position together. Writes nothing and leaves the EPBL authentic.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF \
+		-DEPBL_UFS_NATIVE_TRIPLE -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Same probe for a board whose BOOTLOADER partition holds the STOCK sboot.
+# Without EPBL_CUSTOM_KEY the BootROM keeps its own PTR_SECUREBOOT_KEY, so
+# 0x5b58 verifies Samsung's image against Samsung's key and the handoff is a
+# completely stock boot. The three records are the only thing added to it.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_stock_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF \
+		-DEPBL_UFS_NATIVE_TRIPLE -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT -c $< -o $@
+
+# Same as the custom-key triple probe, but it puts the BootROM selector's own
+# pointer back into 0x0202006c as soon as the verifier has returned. One
+# variable: whether anything after the handoff still reads that pointer.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_restore_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF \
+		-DEPBL_UFS_NATIVE_TRIPLE -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT -DEPBL_RESTORE_KEY_PTR \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
+
+# Native handoff diagnostic. It keeps the same unhooked EPBL/FWBL1 path, sends
+# one completed pre-entry snapshot, and catches only an actual EPBL return.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_diag_probe.o: \
+		payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF \
+		-DEPBL_UFS_NATIVE_DIAGNOSTIC -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE -c $< -o $@
 
 # Read-only: report the BootROM key selector's inputs and the pointer it chose.
 $(BUILD_DIR)/payloads/epbl_key_state_probe.o: \
@@ -466,9 +660,89 @@ $(BUILD_DIR)/epbl_key_dump_probe.elf: \
 	arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 
+$(BUILD_DIR)/epbl_pmu_trace_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_pmu_trace_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_retention_mark_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_retention_mark_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_retention_read_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_retention_read_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
 $(BUILD_DIR)/epbl_boot_ufs_chain_probe.elf: \
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_chain_probe.o \
 	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_plain_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_plain_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_silent_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_silent_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_load_diag_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_load_diag_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_postload_diag_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_postload_diag_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_timing_diag_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_timing_diag_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_flag_diag_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_flag_diag_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_cold_diag_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_cold_diag_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_force_cold_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_force_cold_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_triple_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_triple_stock_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_stock_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_triple_restore_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_restore_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_diag_probe.elf: \
+		$(BUILD_DIR)/payloads/epbl_boot_ufs_native_diag_probe.o \
+		arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 
 $(BUILD_DIR)/epbl_key_state_probe.elf: \

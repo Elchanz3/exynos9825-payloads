@@ -7,8 +7,17 @@
 #define PROBE_RELOCATION_ADDRESS       0x02025000
 #define PROBE_EPBL_DESTINATION         0x02022000
 #define PROBE_EPBL_SIZE                0x3000
-#if defined(EPBL_BOOT_UFS) || defined(EPBL_KEY_STATE) || \
-    defined(EPBL_BOOT_UFS_CHAIN) || defined(EPBL_KEY_DUMP)
+#if defined(EPBL_BOOT_UFS_CHAIN)
+/*
+ * VBAR_EL3 is 0x800-byte aligned. The UFS-chain build leaves holes at
+ * relocated offsets 0x800 and 0xa00 for the CurrentEL SP0/SPx synchronous
+ * entries, then resumes code at offset 0xa04.
+ */
+#define PROBE_EXCEPTION_VBAR           0x02025800
+#elif defined(EPBL_BOOT_UFS) || defined(EPBL_KEY_STATE) || \
+    defined(EPBL_KEY_DUMP) || \
+    defined(EPBL_PMU_TRACE) || \
+    defined(EPBL_RETENTION_MARK) || defined(EPBL_RETENTION_READ)
 /*
  * These paths make the relocated worker reach 0x02025868, past the usual
  * 0x02025800 vector slot, and the probe WRITES branch instructions into that
@@ -20,6 +29,23 @@
 #else
 #define PROBE_EXCEPTION_VBAR           0x02025800
 #endif
+
+#if defined(EPBL_RETENTION_MARK) || defined(EPBL_RETENTION_READ)
+/*
+ * Establish whether PMU scratch or unused FWBL1-padding iRAM survives the
+ * exact warm EUB reentry used after a late-stage failure. The writer and reader
+ * are separate payloads so the second session cannot accidentally recreate the
+ * evidence it is supposed to measure.
+ */
+#define PROBE_RETENTION_PMU_BASE       0x15860800
+#define PROBE_RETENTION_IRAM_BASE      0x02038800
+#define PROBE_RETENTION_PMU_0          0x31434d50          /* "PMC1" */
+#define PROBE_RETENTION_PMU_1          0x32434d50          /* "PMC2" */
+#define PROBE_RETENTION_IRAM_0         0x314c41434d415249  /* "IRAMCAL1" */
+#define PROBE_RETENTION_IRAM_1         0x324c41434d415249  /* "IRAMCAL2" */
+#define PROBE_RETENTION_MARK_MAGIC     0x214b52414d4e5452  /* "RTNMARK!" */
+#define PROBE_RETENTION_READ_MAGIC     0x21444145524e5452  /* "RTNREAD!" */
+#endif
 #define PROBE_DWC3_GEVNTCOUNT0         0x10c0c40c
 #define PROBE_DWC3_DSTS                0x10c0c70c
 #define PROBE_DWC3_DALEPENA            0x10c0c720
@@ -29,6 +55,17 @@
     defined(EPBL_COLD_CONTEXT_STAGED) || \
     defined(EPBL_FWBL1_BOUNDARY_STAGED)
 #define EPBL_CONTEXT_STAGED
+#endif
+
+/*
+ * Both paths need the cache-safe first-line stager because the loaded EPBL
+ * replaces this payload at 0x02022000. The native path deliberately does not
+ * inherit EPBL_CONTEXT_STAGED: after relocation it must leave the EPBL
+ * dispatch literal, VBAR_EL3, FWBL1 entry and saved exception context alone.
+ */
+#if defined(EPBL_COLD_CONTEXT_STAGED) || \
+    defined(EPBL_UFS_NATIVE_HANDOFF)
+#define EPBL_COLD_STAGER
 #endif
 
 #if defined(EPBL_MMIO_TRAP_STAGED) || defined(EPBL_CONTEXT_STAGED)
@@ -51,6 +88,21 @@
 #define PROBE_POSTLOAD_FAIL_MAGIC      0x4c49414650465045
 #define PROBE_FINALIZE_FAIL_MAGIC      0x4c49414646465045
 #define PROBE_TRAP_MAGIC               0x2150415254465045
+#elif defined(EPBL_UFS_NATIVE_HANDOFF)
+#define EPBL_ENTRY_PATH
+#define EPBL_VERIFY_PATH
+#define EPBL_POSTLOAD_PATH
+#define PROBE_INIT_MAGIC               "EUNINIT!"
+#define PROBE_READY_MAGIC              0x21215944524e5545
+#define PROBE_HASH_MAGIC               0x21485341484e5545
+#define PROBE_PARSED_MAGIC             0x45535241504e5545
+#define PROBE_VERIFIED_MAGIC           0x59465245564e5545
+#define PROBE_POSTLOAD_MAGIC           0x2154534f504e5545
+#define PROBE_PASS_MAGIC               0x21535341504e5545
+#define PROBE_FAIL_MAGIC               0x214c4941464e5545
+#define PROBE_VERIFY_FAIL_MAGIC        0x4c494146564e5545
+#define PROBE_POSTLOAD_FAIL_MAGIC      0x4c494146504e5545
+#define PROBE_FINALIZE_FAIL_MAGIC      0x4c494146464e5545
 #elif defined(EPBL_COLD_CONTEXT_STAGED)
 #define EPBL_ENTRY_PATH
 #define EPBL_VERIFY_PATH
@@ -210,6 +262,7 @@
 #define PROBE_PARSE_BL1_HEADER         0x00017c54
 #define PROBE_VERIFY_BL1               0x0000c9a0
 #define PROBE_VERIFY_SELECTOR          0x00017334
+#define PROBE_KEY_SELECTOR             0x00005780
 #define PROBE_SECURITY_STATUS          0x1000b014
 #define PROBE_BOOT_STATE               0x02020064
 #define PROBE_VERIFY_STATUS            0x02020070
@@ -225,6 +278,10 @@
 #define PROBE_EPBL_HOOK_SITE           0x02022018
 #define PROBE_EPBL_ENTRY_INSN          0x14000002
 #define PROBE_EPBL_HOOK_INSN           0x580002d4
+#define PROBE_EPBL_FORCE_COLD_ENTRY_INSN 0x14000006
+#define PROBE_EPBL_GATE_BRANCH_SITE    0x02022028
+#define PROBE_EPBL_GATE_BRANCH_INSN    0x54000041
+#define PROBE_EPBL_FORCE_COLD_INSN     0x14000002
 #define PROBE_EPBL_MMIO_SITE           0x02022020
 #define PROBE_EPBL_MMIO_INSN           0xd2800035
 #define PROBE_EPBL_DISPATCH_STATE      0x02020128
@@ -243,6 +300,56 @@
 #define PROBE_ENTRY_TIMING_WORD        0x0202008c
 #define PROBE_BOOT_FLAGS               0x02020070
 #define PROBE_ENTRY_FLAG               0x00800000
+#define PROBE_PTR_IS_SECUREBOOT        0x020200a8
+
+#ifdef EPBL_UFS_NATIVE_DIAGNOSTIC
+/* Native pre-handoff snapshot and the EPBL-return failure sentinel. */
+#define PROBE_UFS_NATIVE_PRE_MAGIC      0x21214552504e5545  /* "EUNPRE!!" */
+#define PROBE_UFS_NATIVE_RETURN_MAGIC   0x21215445524e5545  /* "EUNRET!!" */
+#endif
+
+#ifdef EPBL_UFS_NATIVE_TIMING_DIAGNOSTIC
+/* Native boundary immediately after the stock 0x18768 timing helper. */
+#define PROBE_UFS_NATIVE_TIMING_MAGIC   0x21454d49544e5545  /* "EUNTIME!" */
+#endif
+
+#ifdef EPBL_UFS_NATIVE_FLAG_DIAGNOSTIC
+/* Native boundary immediately after the stock 0x16a10 boot-flag helper. */
+#define PROBE_UFS_NATIVE_FLAG_MAGIC     0x2147414c464e5545  /* "EUNFLAG!" */
+#endif
+
+#ifdef EPBL_UFS_NATIVE_COLD_DIAGNOSTIC
+/* Native cold-path override after recording the original warm/cold state. */
+#define PROBE_UFS_NATIVE_COLD_MAGIC     0x21444c4f434e5545  /* "EUNCOLD!" */
+#endif
+
+#ifdef EPBL_UFS_NATIVE_FORCE_COLD
+/* Force the native cold path without reading the suspect warm-state MMIO. */
+#define PROBE_UFS_NATIVE_FORCE_MAGIC    0x2143524f464e5545  /* "EUNFORC!" */
+#endif
+
+#ifdef EPBL_UFS_NATIVE_TRIPLE
+/*
+ * Three identical records at three positions, to separate "which operation
+ * kills the channel" from "how far into the sequence the channel survives".
+ *
+ * Every record that was emitted at or before the 0x16a10 boundary arrived
+ * (EUNTIME!, EUNFLAG!), and every record emitted after the native entry
+ * validation was lost (EUNPRE!!, EUNCOLD!, EUNFORC!) -- regardless of whether
+ * it read 0x15860990, wrote an EPBL instruction, or did neither. Those two
+ * candidate causes were each changed together with the position, so neither
+ * was ever tested on its own.
+ *
+ * This build changes nothing else: identical content in all three records,
+ * both suspect reads performed in the FIRST one, and no write anywhere. The
+ * EPBL is left byte-for-byte authentic and entered through the stock helper.
+ */
+#define PROBE_UFS_NATIVE_TRIPLE0_MAGIC  0x30434552334e5545  /* "EUN3REC0" */
+#define PROBE_UFS_NATIVE_TRIPLE1_MAGIC  0x31434552334e5545  /* "EUN3REC1" */
+#define PROBE_UFS_NATIVE_TRIPLE2_MAGIC  0x32434552334e5545  /* "EUN3REC2" */
+#define PROBE_UFS_NATIVE_TRIPLE3_MAGIC  0x33434552334e5545  /* "EUN3REC3" */
+#define PROBE_TRIPLE_SKIPPED             0xffffffff
+#endif
 
 #ifdef EPBL_KEY_STATE
 /*
@@ -256,13 +363,14 @@
  * Selector logic (0x5780), where SEC0 = 0x10001000 and SEC1 = 0x1000b014:
  *   A SEC0.8  B SEC1.31  C SEC0.1  D SEC0.3  E SEC0.0  F SEC1.0  G SEC1.3
  *   A==0 && B==1        -> ROM table 0x1fae0
- *   C==1 && D==0        -> ROM table 0x1fae0
+ *   C==1 && D==0        -> KEY2 0x10003020
  *   E==1                -> KEY  0x10003000
  *   F==1 && G==0        -> ROM table 0x1fae0
- *   else                -> KEY2 0x10003020
- * E is tested before F/G, so if E is USE_KEY then a device with USE_KEY=1 can
- * never reach KEY2 -- which would block fusing KEY2 entirely. This probe is
- * how we find out, and it only reads.
+ *   else                -> ROM table 0x1fae0
+ * C/D are tested before E, so KEY2 remains selectable even when E (USE_KEY)
+ * is already set. The likely C/D meanings are USE_KEY2/BAN_KEY2, but that
+ * association still needs an independent read-only proof. This probe only
+ * reports the raw selector inputs and the pointer chosen by the ROM.
  */
 #define PROBE_SEC_STATUS0              0x10001000
 #define PROBE_SEC_STATUS1              0x1000b014
@@ -280,6 +388,39 @@
 #define PROBE_OTP_KEY_SLOT             0x10003000
 #define PROBE_OTP_KEY2_SLOT            0x10003020
 #define PROBE_KEY_DUMP_MAGIC           0x21214d554458454b  /* "KEXDUM!!" */
+#endif
+
+#if defined(EPBL_PMU_TRACE) || defined(EPBL_UFS_TRACE)
+/*
+ * PMU scratch words unused by this sboot build. Retention through EUB reentry
+ * is unproven: an all-zero read cannot locate the preceding boot failure.
+ */
+#define PROBE_PMU_TRACE_BASE           0x15860800
+#define PROBE_PMU_TRACE_MAGIC          0x4543415254554d50  /* "PMUTRACE" */
+#define PROBE_PMU_TRACE_UFS_HANDOFF    0x31534655          /* "UFS1" */
+#define PROBE_PMU_TRACE_FWBL1_ENTRY    0x31425746          /* "FWB1" */
+#define PROBE_PMU_TRACE_FWBL1_DECRYPT  0x31445746          /* "FWD1" */
+#define PROBE_UFS_LIVE_FWBL1_ENTRY     0x2152544e45574655  /* "UFWENTR!" */
+#define PROBE_UFS_LIVE_FWBL1_DECRYPT   0x2152434544574655  /* "UFWDECR!" */
+#define PROBE_UFS_LIVE_PRE_HANDOFF     0x2121455250534655  /* "UFSPRE!!" */
+#define PROBE_UFS_LIVE_HANDOFF         0x21444e4148534655  /* "UFSHAND!" */
+#define PROBE_UFS_LIVE_FWBL1_INIT      0x2154494e49574655  /* "UFWINIT!" */
+#define PROBE_UFS_LIVE_FWBL1_LOG1      0x2131474f4c574655  /* "UFWLOG1!" */
+#define PROBE_UFS_LIVE_FWBL1_CFG1      0x2131474643574655  /* "UFWCFG1!" */
+#define PROBE_UFS_LIVE_FWBL1_CFG2      0x2132474643574655  /* "UFWCFG2!" */
+#define PROBE_UFS_LIVE_FWBL1_EL3       0x2121334c45574655  /* "UFWEL3!!" */
+#define PROBE_UFS_LIVE_FWBL1_MAIN      0x214e49414d574655  /* "UFWMAIN!" */
+#define PROBE_UFS_LIVE_BL2_ENTRY       0x21544e45324c4255  /* "UBL2ENT!" */
+#define PROBE_UFS_LIVE_BL2_MISS        0x5353494d324c4255  /* "UBL2MISS" */
+#define PROBE_UFS_LIVE_BL2_PRE         0x21455250324c4255  /* "UBL2PRE!" */
+#define PROBE_UFS_LIVE_BL2_CONTEXT     0x21585443324c4255  /* "UBL2CTX!" */
+
+/* Plaintext FWBL1/BL2 sites used by the post-decrypt boundary trace. */
+#define PROBE_FWBL1_BEFORE_ERET_SITE   0x02026100
+#define PROBE_FWBL1_CONTEXT_RESTORE    0x0202a9d4
+#define PROBE_BL2_ENTRY                0x02100000
+#define PROBE_BL2_ENTRY_INSN           0x14000001
+#define PROBE_BL2_LIMIT                0x02152000
 #endif
 
 #if defined(EPBL_BOOT_UFS) || defined(EPBL_BOOT_UFS_CHAIN)
@@ -332,7 +473,7 @@
 #define PROBE_BOOT_UFS_FAIL_MAGIC      0x214c494146555045  /* "EPUFAIL!" */
 #endif
 
-#ifdef EPBL_COLD_CONTEXT_STAGED
+#ifdef EPBL_COLD_STAGER
     /*
      * The I-cache still holds every line this stager executed from
      * 0x02022000 after the received EPBL overwrites it, and IC maintenance
@@ -516,6 +657,18 @@ relocated_entry:
 
 #ifdef EPBL_KEY_STATE
     b       key_state_path
+#endif
+
+#ifdef EPBL_PMU_TRACE
+    b       pmu_trace_path
+#endif
+
+#ifdef EPBL_RETENTION_MARK
+    b       retention_mark_path
+#endif
+
+#ifdef EPBL_RETENTION_READ
+    b       retention_read_path
 #endif
 
 #ifdef EPBL_BOOT_UFS_CHAIN
@@ -870,11 +1023,54 @@ epbl_verified:
     dsb     sy
 #endif
 
+#ifdef EPBL_UFS_NATIVE_HANDOFF
+    /* Use the selector result captured after the UFS load, as the ROM does. */
+    mov     w0, w28
+#else
     /* Match the EUB main path: the mode selector passed one to 0x5b58. */
     mov     w0, #1
+#endif
     ldr     x16, =PROBE_POSTLOAD
     blr     x16
     mov     w25, w0
+
+#ifdef EPBL_UFS_NATIVE_POSTLOAD_DIAGNOSTIC
+    /*
+     * Report immediately after 0x5b58 returns and before the stock entry
+     * timing/boot-flag calls. This keeps the measurement on the native path
+     * while separating verification from the final handoff preparation.
+     */
+    adr     x19, probe_record
+    ldr     x20, =PROBE_POSTLOAD_MAGIC
+    str     x20, [x19]
+    mov     x20, #1
+    str     x20, [x19, #0x10]
+    str     x28, [x19, #0x18]          /* key-selector return */
+    str     x25, [x19, #0x20]          /* 0x5b58 return */
+    ldr     x20, =PROBE_BOOT_UFS_KEY_POINTER
+    ldr     w21, [x20]
+    str     x21, [x19, #0x28]
+    ldr     x20, =PROBE_POSTLOAD_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x30]
+    ldr     x20, =PROBE_POSTLOAD_TIMING_START
+    ldr     w21, [x20]
+    str     x21, [x19, #0x38]
+    ldr     x20, =PROBE_POSTLOAD_TIMING_END
+    ldr     w21, [x20]
+    str     x21, [x19, #0x40]
+    ldr     x20, =PROBE_POSTLOAD_SECURITY
+    ldr     w21, [x20]
+    str     x21, [x19, #0x48]
+    ldr     x20, =PROBE_BOOT_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x50]
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+#endif
 
 #ifndef EPBL_ENTRY_PATH
     adr     x19, probe_record
@@ -906,7 +1102,8 @@ epbl_verified:
 
     cmp     w25, #1
     b.ne    postload_failed
-#ifndef EPBL_CONTEXT_STAGED
+#if !defined(EPBL_CONTEXT_STAGED) && \
+    !defined(EPBL_UFS_NATIVE_HANDOFF)
     cmp     w26, #PROBE_EPBL_SIZE
     b.ne    postload_failed
     ldr     w20, =PROBE_EPBL_CHECKSUM
@@ -914,17 +1111,195 @@ epbl_verified:
     b.ne    postload_failed
 #endif
 
+
+#ifdef EPBL_UFS_NATIVE_TRIPLE
+/*
+ * One record shape, emitted unchanged at three points of the native
+ * preparation. Reads only: it never writes iRAM, never touches the loaded
+ * EPBL and never changes the saved context, so the three positions differ in
+ * nothing but where they sit in the instruction stream.
+ *
+ * The two reads that were previously suspected of closing the channel
+ * (0x15860990 and 0x02020128) are performed in every record, which means the
+ * FIRST one already performs them at a position that is proven to work.
+ */
+.macro  probe_native_triple_record magic, reads=1
+    adr     x19, probe_record
+    ldr     x20, =\magic
+    str     x20, [x19]
+    mov     x20, #1
+    str     x20, [x19, #0x10]
+    str     x28, [x19, #0x18]          /* BootROM key-selector return */
+    str     x25, [x19, #0x20]          /* 0x5b58 verifier return */
+.if \reads
+    ldr     x20, =PROBE_EPBL_DISPATCH_MMIO
+    ldr     w21, [x20]
+    str     x21, [x19, #0x28]          /* warm/cold gate 0x15860990 */
+    ldr     x20, =PROBE_EPBL_DISPATCH_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x30]          /* residual dispatch state 0x02020128 */
+.else
+    /* Baseline: the same record without the two reads under suspicion. */
+    mov     x21, #PROBE_TRIPLE_SKIPPED
+    str     x21, [x19, #0x28]
+    str     x21, [x19, #0x30]
+.endif
+    ldr     x20, =PROBE_BOOT_FLAGS
+    ldr     w21, [x20]
+    str     x21, [x19, #0x38]
+    ldr     x20, =PROBE_EPBL_ENTRY
+    ldr     w21, [x20]
+    ldr     x20, =PROBE_EPBL_HOOK_SITE
+    ldr     w22, [x20]
+    orr     x21, x21, x22, lsl #32
+    str     x21, [x19, #0x40]          /* EPBL entry | gate-load word */
+    ldr     x20, =PROBE_EPBL_GATE_BRANCH_SITE
+    ldr     w21, [x20]
+    ldr     x20, =PROBE_EPBL_DISPATCH_LITERAL
+    ldr     w22, [x20]
+    orr     x21, x21, x22, lsl #32
+    str     x21, [x19, #0x48]          /* gate branch | dispatch literal */
+    mrs     x21, SCTLR_EL3
+    str     x21, [x19, #0x50]
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+.endm
+#endif
+
 #ifdef EPBL_ENTRY_PATH
     /* Complete the two stock calls immediately before the EPBL branch. */
     ldr     w0, =PROBE_ENTRY_TIMING_WORD
     ldr     x16, =PROBE_ENTRY_TIMING
     blr     x16
+
+#ifdef EPBL_UFS_NATIVE_TIMING_DIAGNOSTIC
+    /*
+     * Report after 0x18768 returns but before 0x16a10 sets the final boot
+     * flag. This isolates the two remaining stock preparation calls without
+     * changing the authenticated EPBL or its saved execution context.
+     */
+    adr     x19, probe_record
+    ldr     x20, =PROBE_UFS_NATIVE_TIMING_MAGIC
+    str     x20, [x19]
+    mov     x20, #1
+    str     x20, [x19, #0x10]
+    str     x28, [x19, #0x18]          /* key-selector return */
+    str     x25, [x19, #0x20]          /* 0x5b58 return */
+    ldr     x20, =PROBE_ENTRY_TIMING_WORD
+    ldr     w21, [x20]
+    str     x21, [x19, #0x28]
+    ldr     x20, =PROBE_BOOT_FLAGS
+    ldr     w21, [x20]
+    str     x21, [x19, #0x30]          /* before the 0x00800000 update */
+    ldr     x20, =PROBE_BOOT_UFS_KEY_POINTER
+    ldr     w21, [x20]
+    str     x21, [x19, #0x38]
+    ldr     x20, =PROBE_EPBL_DISPATCH_LITERAL
+    ldr     x21, [x20]
+    str     x21, [x19, #0x40]
+    ldr     x20, =PROBE_EPBL_ENTRY
+    ldr     x21, [x20]
+    str     x21, [x19, #0x48]
+    mrs     x21, SCTLR_EL3
+    str     x21, [x19, #0x50]
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+#endif
+
+#ifdef EPBL_UFS_NATIVE_TRIPLE
+    /*
+     * Position 0, then position 1: both exactly where EUNTIME! was received.
+     * The baseline omits the two reads under suspicion, so losing everything
+     * is attributable to those reads rather than to the position -- which a
+     * run that starts with the reads could never distinguish.
+     */
+    probe_native_triple_record PROBE_UFS_NATIVE_TRIPLE0_MAGIC, 0
+    probe_native_triple_record PROBE_UFS_NATIVE_TRIPLE1_MAGIC
+#endif
+
+#ifdef EPBL_RESTORE_KEY_PTR
+    /*
+     * Put the BootROM selector's own pointer back, now that 0x5b58 has
+     * consumed our key.
+     *
+     * The value is written as a constant rather than saved beforehand. An
+     * earlier revision read 0x0202006c and stashed it in the worker before
+     * the verifier, and twice returned no records at all -- the three extra
+     * instructions sat ahead of record 0, so the run proved nothing. Every
+     * instruction added here now sits AFTER records 0 and 1, which have
+     * arrived on every run, so their presence certifies the measurement and
+     * the only variable left is the store itself.
+     *
+     * 0x10003000 is the fused KEY slot. The selector was observed choosing it
+     * on this device, and the probe re-ran that same selector at 0x5780
+     * before the load, so this is the value it left behind.
+     */
+    movz    w5, #0x3000
+    movk    w5, #0x1000, lsl #16        /* PTR back to the fused KEY slot */
+    movz    x6, #0x006c
+    movk    x6, #0x0202, lsl #16
+    str     w5, [x6]
+    dsb     sy
+#endif
+
     mov     w0, #0
     ldr     w1, =PROBE_ENTRY_FLAG
     ldr     x16, =PROBE_SET_BOOT_FLAG
     blr     x16
 
-#ifndef EPBL_CONTEXT_STAGED
+#ifdef EPBL_UFS_NATIVE_FLAG_DIAGNOSTIC
+    /*
+     * Report immediately after 0x16a10 returns and before the native entry
+     * validation. Pack the two independently checked EPBL instructions into
+     * one qword so this record contains every later validation input.
+     */
+    adr     x19, probe_record
+    ldr     x20, =PROBE_UFS_NATIVE_FLAG_MAGIC
+    str     x20, [x19]
+    mov     x20, #1
+    str     x20, [x19, #0x10]
+    str     x28, [x19, #0x18]          /* key-selector return */
+    str     x25, [x19, #0x20]          /* 0x5b58 return */
+    ldr     x20, =PROBE_ENTRY_TIMING_WORD
+    ldr     w21, [x20]
+    str     x21, [x19, #0x28]
+    ldr     x20, =PROBE_BOOT_FLAGS
+    ldr     w21, [x20]
+    str     x21, [x19, #0x30]          /* after the 0x00800000 update */
+    ldr     x20, =PROBE_BOOT_UFS_KEY_POINTER
+    ldr     w21, [x20]
+    str     x21, [x19, #0x38]
+    ldr     x20, =PROBE_EPBL_DISPATCH_LITERAL
+    ldr     x21, [x20]
+    str     x21, [x19, #0x40]
+    ldr     x20, =PROBE_EPBL_ENTRY
+    ldr     w21, [x20]
+    ldr     x20, =PROBE_EPBL_HOOK_SITE
+    ldr     w22, [x20]
+    orr     x21, x21, x22, lsl #32
+    str     x21, [x19, #0x48]
+    mrs     x21, SCTLR_EL3
+    str     x21, [x19, #0x50]
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+#endif
+
+#ifdef EPBL_UFS_NATIVE_TRIPLE
+    /* Position 2: exactly where EUNFLAG! was received. */
+    probe_native_triple_record PROBE_UFS_NATIVE_TRIPLE2_MAGIC
+#endif
+
+#if !defined(EPBL_CONTEXT_STAGED) && \
+    !defined(EPBL_UFS_NATIVE_HANDOFF)
     /* Validate the authentic entry prefix before installing a later hook. */
     ldr     x20, =PROBE_EPBL_ENTRY
     ldr     w21, [x20]
@@ -998,6 +1373,171 @@ epbl_verified:
     ldr     w22, [x20]
     tst     w22, #PROBE_ENTRY_FLAG
     b.eq    finalize_failed
+#endif
+
+#ifdef EPBL_UFS_NATIVE_HANDOFF
+    /*
+     * Validate the two immutable entry instructions, but do not patch either
+     * one. The exact BootROM helper below will branch to 0x02022010 with
+     * I-cache disabled, so the freshly loaded EPBL executes its own complete
+     * cold path and retains its authentic FWBL1 dispatch pointer.
+     */
+    ldr     x20, =PROBE_EPBL_ENTRY
+    ldr     w21, [x20]
+    ldr     w22, =PROBE_EPBL_ENTRY_INSN
+    cmp     w21, w22
+    b.ne    finalize_failed
+    ldr     x20, =PROBE_EPBL_HOOK_SITE
+    ldr     w21, [x20]
+    ldr     w22, =PROBE_EPBL_HOOK_INSN
+    cmp     w21, w22
+    b.ne    finalize_failed
+    ldr     x20, =PROBE_EPBL_DISPATCH_LITERAL
+    ldr     x21, [x20]
+    ldr     x22, =PROBE_EPBL_DISPATCH_POINTER
+    cmp     x21, x22
+    b.ne    finalize_failed
+    ldr     x20, =PROBE_BOOT_FLAGS
+    ldr     w21, [x20]
+    tst     w21, #PROBE_ENTRY_FLAG
+    b.eq    finalize_failed
+#endif
+
+#ifdef EPBL_UFS_NATIVE_TRIPLE
+    /*
+     * Position 3: where EUNPRE!!, EUNCOLD! and EUNFORC! were all lost. The
+     * only thing separating it from position 2 is the native entry validation
+     * above, which reads the same words position 2 already reported.
+     */
+    probe_native_triple_record PROBE_UFS_NATIVE_TRIPLE3_MAGIC
+#endif
+
+#ifdef EPBL_UFS_NATIVE_COLD_DIAGNOSTIC
+    /*
+     * EUB can leave the EPBL warm/cold gate set while 0x02020128 still holds
+     * residual state. Record both original values, then replace only the
+     * authenticated EPBL's conditional branch with an unconditional branch
+     * to its own cold loader. I-cache is disabled below before EPBL executes,
+     * so the patched first cache line is fetched from iRAM.
+     */
+    adr     x19, probe_record
+    ldr     x20, =PROBE_UFS_NATIVE_COLD_MAGIC
+    str     x20, [x19]
+    mov     x20, #1
+    str     x20, [x19, #0x10]
+    str     x28, [x19, #0x18]          /* key-selector return */
+    str     x25, [x19, #0x20]          /* 0x5b58 return */
+    ldr     x20, =PROBE_EPBL_DISPATCH_MMIO
+    ldr     w21, [x20]
+    str     x21, [x19, #0x28]          /* original warm/cold gate */
+    ldr     x20, =PROBE_EPBL_DISPATCH_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x30]          /* original warm target base */
+    ldr     x20, =PROBE_BOOT_FLAGS
+    ldr     w21, [x20]
+    str     x21, [x19, #0x38]
+    ldr     x20, =PROBE_EPBL_GATE_BRANCH_SITE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x40]
+    ldr     w22, =PROBE_EPBL_GATE_BRANCH_INSN
+    cmp     w21, w22
+    b.ne    finalize_failed
+    ldr     w22, =PROBE_EPBL_FORCE_COLD_INSN
+    str     w22, [x20]
+    dsb     sy
+    ldr     w21, [x20]
+    str     x21, [x19, #0x48]
+    ldr     x20, =PROBE_EPBL_DISPATCH_LITERAL
+    ldr     x21, [x20]
+    str     x21, [x19, #0x50]
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+#endif
+
+#ifdef EPBL_UFS_NATIVE_FORCE_COLD
+    /*
+     * EUNPRE!! and EUNCOLD! both disappeared before their first record, while
+     * the immediately preceding EUNFLAG! record completed. Their first new
+     * operation was the read from 0x15860990. Avoid that register and the
+     * residual dispatch-state word here. Authenticate the first instruction
+     * after the EPBL entry branch, then replace that one RAM instruction with
+     * a direct branch to 0x02022030. This skips the MMIO read and comparison
+     * while retaining the EPBL's complete original cold loader.
+     */
+    adr     x19, probe_record
+    ldr     x20, =PROBE_UFS_NATIVE_FORCE_MAGIC
+    str     x20, [x19]
+    mov     x20, #1
+    str     x20, [x19, #0x10]
+    str     x28, [x19, #0x18]          /* key-selector return */
+    str     x25, [x19, #0x20]          /* 0x5b58 return */
+    ldr     x20, =PROBE_BOOT_FLAGS
+    ldr     w21, [x20]
+    str     x21, [x19, #0x28]
+    ldr     x20, =PROBE_EPBL_HOOK_SITE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x30]
+    ldr     w22, =PROBE_EPBL_HOOK_INSN
+    cmp     w21, w22
+    b.ne    finalize_failed
+    ldr     w22, =PROBE_EPBL_FORCE_COLD_ENTRY_INSN
+    str     w22, [x20]
+    dsb     sy
+    ldr     w21, [x20]
+    str     x21, [x19, #0x38]
+    ldr     x20, =PROBE_EPBL_DISPATCH_LITERAL
+    ldr     x21, [x20]
+    str     x21, [x19, #0x40]
+    ldr     x20, =PROBE_EPBL_ENTRY
+    ldr     w21, [x20]
+    str     x21, [x19, #0x48]
+    mrs     x21, SCTLR_EL3
+    str     x21, [x19, #0x50]
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
+#endif
+
+#ifdef EPBL_UFS_NATIVE_DIAGNOSTIC
+    /*
+     * Emit one completed record at the last safe point before the authentic
+     * EPBL entry. This distinguishes a host-side USB disconnect from the
+     * state that the EPBL actually received. The transfer completes before
+     * the record/TRB can be reused by the return sentinel below.
+     */
+    adr     x19, probe_record
+    ldr     x23, [x19, #0x20]          /* boot state before storage force */
+    ldr     x20, =PROBE_UFS_NATIVE_PRE_MAGIC
+    str     x20, [x19]
+    mov     x20, #1
+    str     x20, [x19, #0x10]
+    str     x23, [x19, #0x18]
+    ldr     x20, =PROBE_BOOT_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x20]
+    str     x28, [x19, #0x28]          /* BootROM key-selector return */
+    str     x25, [x19, #0x30]          /* BootROM post-load return */
+    ldr     x20, =PROBE_EPBL_DISPATCH_MMIO
+    ldr     w21, [x20]
+    str     x21, [x19, #0x38]
+    ldr     x20, =PROBE_PTR_IS_SECUREBOOT
+    ldr     w21, [x20]
+    str     x21, [x19, #0x40]
+    ldr     x20, =PROBE_EPBL_DISPATCH_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x48]
+    mrs     x21, SCTLR_EL3
+    str     x21, [x19, #0x50]
+    mov     x21, sp
+    str     x21, [x19, #0x58]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_wait
 #endif
 
 #if defined(EPBL_COLD_CONTEXT_STAGED) || \
@@ -1089,6 +1629,21 @@ epbl_verified:
     mov     w21, #1
     ldr     x16, =PROBE_EPBL_COLD_TARGET
     blr     x16
+#elif defined(EPBL_UFS_NATIVE_HANDOFF)
+    /*
+     * Match the BootROM state at its BL to 0x1c9a0: attempt index in x19,
+     * selector result in x20, and the architectural link back to 0x250.
+     * The helper itself loads x4 = 0x02022010 and branches without linking.
+     */
+    mov     w19, #1
+    mov     w20, w28
+#ifdef EPBL_UFS_NATIVE_DIAGNOSTIC
+    adr     x30, native_epbl_returned
+#else
+    mov     x30, #0x250
+#endif
+    ldr     x16, =PROBE_EPBL_BRANCH
+    br      x16
 #else
     /* Enter through the exact stock indirect branch helper at 0x1c9a0. */
     ldr     x16, =PROBE_EPBL_BRANCH
@@ -1354,6 +1909,50 @@ report_result:
     b       5b
 .size relocated_entry, . - relocated_entry
 
+#ifdef EPBL_UFS_NATIVE_DIAGNOSTIC
+/*
+ * A successful EPBL/FWBL1/BL2 path never returns here. If the EPBL rejects its
+ * inherited state and unwinds, capture that fact before halting. Returning to
+ * BootROM 0x250 would execute its epilogue on the Houston callback's stack and
+ * turn the original failure into an unexplained black screen.
+ */
+.type native_epbl_returned, %function
+native_epbl_returned:
+    mov     x27, x0
+    adr     x19, probe_record
+    ldr     x20, =PROBE_UFS_NATIVE_RETURN_MAGIC
+    str     x20, [x19]
+    mov     x20, #0x109
+    str     x20, [x19, #0x10]
+    str     x27, [x19, #0x18]
+    ldr     x20, =PROBE_BOOT_STATE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x20]
+    ldr     x20, =PROBE_EPBL_DISPATCH_MMIO
+    ldr     w21, [x20]
+    str     x21, [x19, #0x28]
+    ldr     x20, =PROBE_IRAM_EPBL_SIZE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x30]
+    ldr     w21, [x20, #4]
+    str     x21, [x19, #0x38]
+    ldr     w21, [x20, #8]
+    str     x21, [x19, #0x40]
+    ldr     x20, =PROBE_PTR_IS_SECUREBOOT
+    ldr     w21, [x20]
+    str     x21, [x19, #0x48]
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x50]
+    mrs     x21, SCTLR_EL3
+    str     x21, [x19, #0x58]
+    mov     x0, x19
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_native_bounded
+.Lnative_epbl_returned_halt:
+    b       .Lnative_epbl_returned_halt
+.size native_epbl_returned, . - native_epbl_returned
+#endif
+
 #ifdef EPBL_EXCEPTION_STAGED
 .type el3_exception, %function
 el3_exception:
@@ -1463,12 +2062,53 @@ probe_usb_send_wait:
     mov     w5, #S5E9825_DWC3_STARTTRANSFER
     str     w5, [x4]
     dsb     sy
-6:
+.Lprobe_usb_send_poll:
     ldr     w5, [x2, #0xc]
-    tbnz    w5, #0, 6b
+    tbz     w5, #0, .Lprobe_usb_send_done
+    b       .Lprobe_usb_send_poll
+.Lprobe_usb_send_done:
     dsb     sy
     ret
 .size probe_usb_send_wait, . - probe_usb_send_wait
+
+#ifdef EPBL_UFS_NATIVE_DIAGNOSTIC
+/* The EPBL-return record must never hold a failed chain indefinitely. */
+.type probe_usb_send_native_bounded, %function
+probe_usb_send_native_bounded:
+    and     w1, w1, #0x00ffffff
+    adr     x2, probe_ep1_trb
+    mov     w3, #S5E9825_DWC3_TRB_CTRL_NORMAL
+    stp     w0, wzr, [x2]
+    stp     w1, w3, [x2, #8]
+    dsb     sy
+
+    ldr     x4, =S5E9825_DWC3_EP1_IN_DEPCMDPAR1
+    str     w2, [x4]
+    ldr     x4, =S5E9825_DWC3_EP1_IN_DEPCMDPAR0
+    str     wzr, [x4]
+    ldr     x4, =S5E9825_DWC3_EP1_IN_DEPCMD
+    mov     w5, #S5E9825_DWC3_STARTTRANSFER
+    str     w5, [x4]
+    dsb     sy
+
+    mrs     x6, CNTPCT_EL0
+    mrs     x7, CNTFRQ_EL0
+    lsr     x7, x7, #4
+    add     x6, x6, x7
+.Lprobe_usb_native_bounded_poll:
+    ldr     w5, [x2, #0xc]
+    tbz     w5, #0, .Lprobe_usb_native_bounded_done
+    mrs     x7, CNTPCT_EL0
+    cmp     x7, x6
+    b.lo    .Lprobe_usb_native_bounded_poll
+    mov     w0, #0
+    ret
+.Lprobe_usb_native_bounded_done:
+    dsb     sy
+    mov     w0, #1
+    ret
+.size probe_usb_send_native_bounded, . - probe_usb_send_native_bounded
+#endif
 
 .balign 8
 .type probe_record, %object
@@ -1516,7 +2156,13 @@ fwbl1_noic_entry:
     adr     x16, fwbl1_shim_entry_x4
     str     x4, [x16]
     dsb     sy
-#if defined(EPBL_DUMP_FWBL1) || defined(EPBL_PATCH_VERIFY) || defined(EPBL_VERIFY_DIAG) || defined(EPBL_SBOOT_NOVERIFY) || defined(EPBL_MINFORM_NORMAL)
+#ifdef EPBL_UFS_TRACE
+    ldr     x16, =PROBE_PMU_TRACE_BASE
+    ldr     w17, =PROBE_PMU_TRACE_FWBL1_ENTRY
+    str     w17, [x16, #4]
+    dsb     sy
+#endif
+#if defined(EPBL_DUMP_FWBL1) || defined(EPBL_PATCH_VERIFY) || defined(EPBL_VERIFY_DIAG) || defined(EPBL_SBOOT_NOVERIFY) || defined(EPBL_MINFORM_NORMAL) || defined(EPBL_UFS_TRACE)
     /*
      * The FWBL1 body is still encrypted at the shim; the stub self-decrypts
      * it when FWBL1 runs (decrypt+verify routine at 0x02026720, whose caller
@@ -1552,6 +2198,14 @@ fwbl1_noic_entry:
     br      x16
 
 fwbl1_after_decrypt:
+#ifdef EPBL_UFS_TRACE
+    ldr     x16, =PROBE_PMU_TRACE_BASE
+    ldr     w17, =PROBE_PMU_TRACE_FWBL1_DECRYPT
+    str     w17, [x16, #0x10]
+    dsb     sy
+
+    bl      install_fwbl1_transition_hook
+#endif
 #ifdef EPBL_MINFORM_NORMAL
     /*
      * Tell u-boot that this boot is an intentional normal boot.
@@ -1664,8 +2318,8 @@ fwbl1_after_decrypt:
     dsb     sy
     ldr     x16, =PROBE_FWBL1_DECRYPT_CONT
     br      x16
-#elif defined(EPBL_MINFORM_NORMAL)
-    /* MINFORM only: the write above is the whole payload, rejoin the boot. */
+#elif defined(EPBL_MINFORM_NORMAL) || defined(EPBL_UFS_TRACE)
+    /* The selected checkpoint write is complete; rejoin the stock boot. */
     ldr     x16, =PROBE_FWBL1_DECRYPT_CONT
     br      x16
 #else
@@ -1693,6 +2347,92 @@ fwbl1_patch_table:
     .word   0x0202c3c0, 0x14000002
     .word   0x0202a4ac, 0x14000019
     .word   0, 0
+#endif
+
+#ifdef EPBL_UFS_TRACE
+/*
+ * Emit a compact 0x60-byte boundary record without changing x0..x7 as seen
+ * by the caller. x0 supplies the eight-byte magic and x1 the checkpoint
+ * number. The caller separately preserves its original x0/x1 and x30.
+ */
+.type emit_ufs_live_checkpoint, %function
+emit_ufs_live_checkpoint:
+    sub     sp, sp, #0x40
+    stp     x2, x3, [sp]
+    stp     x4, x5, [sp, #0x10]
+    stp     x6, x7, [sp, #0x20]
+    str     x30, [sp, #0x30]
+
+    adr     x6, probe_record
+    str     x0, [x6]
+    mov     w7, #1
+    str     w7, [x6, #0x8]
+    mov     w7, #PROBE_RECORD_SIZE
+    str     w7, [x6, #0xc]
+    mov     x7, #1
+    str     x7, [x6, #0x10]
+    str     x1, [x6, #0x18]
+    mrs     x7, CurrentEL
+    str     x7, [x6, #0x20]
+    stp     xzr, xzr, [x6, #0x28]
+    stp     xzr, xzr, [x6, #0x38]
+    stp     xzr, xzr, [x6, #0x48]
+    str     xzr, [x6, #0x58]
+    mov     x0, x6
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_bounded
+
+    ldr     x30, [sp, #0x30]
+    ldp     x6, x7, [sp, #0x20]
+    ldp     x4, x5, [sp, #0x10]
+    ldp     x2, x3, [sp]
+    add     sp, sp, #0x40
+    ret
+.size emit_ufs_live_checkpoint, . - emit_ufs_live_checkpoint
+#endif
+
+#if defined(EPBL_UFS_TRACE) || defined(EPBL_UFS_NATIVE_DIAGNOSTIC)
+/*
+ * Late boot checkpoints must never hold the real chain indefinitely. Unlike
+ * probe_usb_send_wait, this helper returns zero after roughly 1/16 second.
+ * Call it only for the final late record: a timed-out DMA still owns its
+ * buffer, so neither probe_record nor probe_ep1_trb may be reused afterward.
+ */
+.type probe_usb_send_bounded, %function
+probe_usb_send_bounded:
+    and     w1, w1, #0x00ffffff
+    adr     x2, probe_ep1_trb
+    mov     w3, #S5E9825_DWC3_TRB_CTRL_NORMAL
+    stp     w0, wzr, [x2]
+    stp     w1, w3, [x2, #8]
+    dsb     sy
+
+    ldr     x4, =S5E9825_DWC3_EP1_IN_DEPCMDPAR1
+    str     w2, [x4]
+    ldr     x4, =S5E9825_DWC3_EP1_IN_DEPCMDPAR0
+    str     wzr, [x4]
+    ldr     x4, =S5E9825_DWC3_EP1_IN_DEPCMD
+    mov     w5, #S5E9825_DWC3_STARTTRANSFER
+    str     w5, [x4]
+    dsb     sy
+
+    mrs     x6, CNTPCT_EL0
+    mrs     x7, CNTFRQ_EL0
+    lsr     x7, x7, #4
+    add     x6, x6, x7
+.Lprobe_usb_bounded_poll:
+    ldr     w5, [x2, #0xc]
+    tbz     w5, #0, .Lprobe_usb_bounded_done
+    mrs     x7, CNTPCT_EL0
+    cmp     x7, x6
+    b.lo    .Lprobe_usb_bounded_poll
+    mov     w0, #0
+    ret
+.Lprobe_usb_bounded_done:
+    dsb     sy
+    mov     w0, #1
+    ret
+.size probe_usb_send_bounded, . - probe_usb_send_bounded
 #endif
 
 #ifdef EPBL_VERIFY_DIAG
@@ -1812,7 +2552,117 @@ key_dump_key:
 .size key_dump_path, . - key_dump_path
 #endif
 
+#ifdef EPBL_PMU_TRACE
+/* Read any best-effort UFS/FWBL1 checkpoints retained from the preceding boot. */
+.type pmu_trace_path, %function
+pmu_trace_path:
+    adr     x19, probe_record
+    ldr     x20, =PROBE_PMU_TRACE_BASE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x18]           /* scratch 0x15860800 */
+    ldr     w21, [x20, #4]
+    str     x21, [x19, #0x20]           /* scratch 0x15860804 */
+    ldr     w21, [x20, #8]
+    str     x21, [x19, #0x28]           /* MINFORM 0x15860808 */
+    ldr     w21, [x20, #0xc]
+    str     x21, [x19, #0x30]           /* download magic 0x1586080c */
+    ldr     w21, [x20, #0x10]
+    str     x21, [x19, #0x38]           /* scratch 0x15860810 */
+    ldr     w21, [x20, #0x14]
+    str     x21, [x19, #0x40]           /* scratch 0x15860814 */
+    ldr     w21, [x20, #0x18]
+    str     x21, [x19, #0x48]           /* scratch 0x15860818 */
+    ldr     w21, [x20, #0x1c]
+    str     x21, [x19, #0x50]           /* scratch 0x1586081c */
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x58]
+    ldr     x20, =PROBE_PMU_TRACE_MAGIC
+    str     x20, [x19]
+    mov     x21, #1
+    str     x21, [x19, #0x10]
+    b       report_result
+.size pmu_trace_path, . - pmu_trace_path
+#endif
+
+#ifdef EPBL_RETENTION_MARK
+.type retention_mark_path, %function
+retention_mark_path:
+    ldr     x20, =PROBE_RETENTION_PMU_BASE
+    ldr     w21, =PROBE_RETENTION_PMU_0
+    str     w21, [x20]
+    ldr     w21, =PROBE_RETENTION_PMU_1
+    str     w21, [x20, #4]
+
+    ldr     x20, =PROBE_RETENTION_IRAM_BASE
+    ldr     x21, =PROBE_RETENTION_IRAM_0
+    str     x21, [x20]
+    ldr     x21, =PROBE_RETENTION_IRAM_1
+    str     x21, [x20, #8]
+    dsb     sy
+    b       retention_report_mark
+.size retention_mark_path, . - retention_mark_path
+#endif
+
+#if defined(EPBL_RETENTION_MARK) || defined(EPBL_RETENTION_READ)
+.type retention_read_path, %function
+retention_read_path:
+    b       retention_report_read
+.size retention_read_path, . - retention_read_path
+
+.type retention_report_mark, %function
+retention_report_mark:
+    ldr     x22, =PROBE_RETENTION_MARK_MAGIC
+    b       retention_report
+.size retention_report_mark, . - retention_report_mark
+
+.type retention_report_read, %function
+retention_report_read:
+    ldr     x22, =PROBE_RETENTION_READ_MAGIC
+    b       retention_report
+.size retention_report_read, . - retention_report_read
+
+.type retention_report, %function
+retention_report:
+    adr     x19, probe_record
+    str     x22, [x19]
+    mov     x21, #1
+    str     x21, [x19, #0x10]
+
+    ldr     x20, =PROBE_RETENTION_PMU_BASE
+    ldr     w21, [x20]
+    str     x21, [x19, #0x18]
+    ldr     w21, [x20, #4]
+    str     x21, [x19, #0x20]
+
+    ldr     x20, =PROBE_RETENTION_IRAM_BASE
+    ldr     x21, [x20]
+    str     x21, [x19, #0x28]
+    ldr     x21, [x20, #8]
+    str     x21, [x19, #0x30]
+
+    ldr     x20, =PROBE_RETENTION_PMU_BASE
+    ldr     w21, [x20, #8]
+    str     x21, [x19, #0x38]
+    ldr     w21, [x20, #0xc]
+    str     x21, [x19, #0x40]
+    mrs     x21, CurrentEL
+    str     x21, [x19, #0x48]
+    ldr     x21, =PROBE_RETENTION_IRAM_BASE
+    str     x21, [x19, #0x50]
+    b       report_result
+.size retention_report, . - retention_report
+#endif
+
 #ifdef EPBL_BOOT_UFS_CHAIN
+#if defined(EPBL_EXCEPTION_STAGED) && defined(EPBL_CONTEXT_STAGED)
+/*
+ * Runtime relocation starts at 0x02025000. Keep the aligned vector words at
+ * runtime 0x02025800 and 0x02025a00 free, then place this path immediately
+ * after the second word. The assembler fails if the prefix ever grows into
+ * this reserved range.
+ */
+.org relocated_start + 0xa04
+#endif
 /*
  * Load the chain from UFS instead of over USB, then rejoin the normal flow.
  *
@@ -1828,6 +2678,17 @@ key_dump_key:
  */
 .type boot_ufs_chain_path, %function
 boot_ufs_chain_path:
+#ifdef EPBL_UFS_TRACE
+    /* Clear stale checkpoints before attempting this UFS boot. */
+    ldr     x20, =PROBE_PMU_TRACE_BASE
+    str     wzr, [x20]
+    str     wzr, [x20, #4]
+    str     wzr, [x20, #0x10]
+    str     wzr, [x20, #0x14]
+    str     wzr, [x20, #0x18]
+    str     wzr, [x20, #0x1c]
+    dsb     sy
+#endif
     /* Zero the destination, so a failed or short read cannot look like data. */
     ldr     x21, =PROBE_EPBL_DESTINATION
     mov     x23, #PROBE_EPBL_SIZE
@@ -1857,7 +2718,12 @@ boot_ufs_chain_clear:
      * Report before continuing. On the EPBL_ENTRY_PATH the stock flow emits no
      * records, so without this the only signal is "the device vanished" --
      * which looks identical whether the chain booted or the payload crashed.
+     *
+     * EPBL_UFS_SILENT deliberately skips both transfers. It is the strict
+     * transport control: after 0xcc68 returns, nothing else touches EP1 or its
+     * event state before the stock chain takes over.
      */
+#ifndef EPBL_UFS_SILENT
     ldr     x20, =PROBE_EPBL_DESTINATION
     ldr     w21, [x20]
     str     x21, [x19, #0x30]           /* loaded num_of_sector */
@@ -1914,7 +2780,14 @@ boot_ufs_chain_clear:
     mov     w1, #PROBE_RECORD_SIZE
     bl      probe_usb_send_wait
     adr     x19, probe_record
+#endif
 
+    /*
+     * Do not touch DRAM here. The physical UFSPRE-only result showed that the
+     * previous stores to 0x80000000 and 0x80000010 ran before BL2 initialized
+     * memory and stopped the chain. The flashed u-boot now neutralizes the
+     * corresponding mode reads after BL2 has made DRAM usable.
+     */
     /*
      * Rejoin AFTER the header parse and the 0xc9a0 verify, not before them.
      * 0xcc68 already did both internally -- that is why the image it leaves
@@ -1925,9 +2798,133 @@ boot_ufs_chain_clear:
      * USB receive parses and verifies nothing.
      */
     adr     x19, probe_record
+#ifdef EPBL_UFS_NATIVE_HANDOFF
+    /* Recreate the selector call at BootROM 0x1dc after the storage load. */
+    ldr     x16, =PROBE_KEY_SELECTOR
+    blr     x16
+    mov     w28, w0
+#endif
     mov     w25, #1
+#ifdef EPBL_UFS_TRACE
+    ldr     x20, =PROBE_PMU_TRACE_BASE
+    ldr     w21, =PROBE_PMU_TRACE_UFS_HANDOFF
+    str     w21, [x20]
+    dsb     sy
+#endif
     b       epbl_verified
 .size boot_ufs_chain_path, . - boot_ufs_chain_path
+#endif
+
+#ifdef EPBL_UFS_TRACE
+/*
+ * FWBL1 is encrypted on entry. Once its self-decrypt call returns, install one
+ * direct branch immediately before the context restore. By then FWBL1 has
+ * loaded BL2. The late hook reports the saved ELR_EL3/SPSR_EL3/SCR_EL3 frame,
+ * then resumes the stock restore and ERET without changing the frame or BL2.
+ * This locates the architectural handoff while leaving the downstream boot
+ * path untouched.
+ */
+.type install_fwbl1_transition_hook, %function
+install_fwbl1_transition_hook:
+    sub     sp, sp, #0x10
+    str     x30, [sp]
+
+    ldr     x16, =PROBE_FWBL1_BEFORE_ERET_SITE
+    adr     x17, fwbl1_before_eret
+    bl      install_fwbl1_branch
+    dsb     sy
+
+    ldr     x30, [sp]
+    add     sp, sp, #0x10
+    ret
+.size install_fwbl1_transition_hook, . - install_fwbl1_transition_hook
+
+.type install_fwbl1_branch, %function
+install_fwbl1_branch:
+    sub     x18, x17, x16
+    asr     x18, x18, #2
+    and     w18, w18, #0x03ffffff
+    movz    w19, #0x1400, lsl #16
+    orr     w18, w18, w19
+    str     w18, [x16]
+    ret
+.size install_fwbl1_branch, . - install_fwbl1_branch
+
+/* x16 = record magic, x17 = checkpoint. Preserve the FWBL1 x0/x1 values. */
+.type emit_fwbl1_setup_checkpoint, %function
+emit_fwbl1_setup_checkpoint:
+    sub     sp, sp, #0x20
+    stp     x0, x1, [sp]
+    str     x30, [sp, #0x10]
+    mov     x0, x16
+    mov     x1, x17
+    bl      emit_ufs_live_checkpoint
+    ldr     x30, [sp, #0x10]
+    ldp     x0, x1, [sp]
+    add     sp, sp, #0x20
+    ret
+.size emit_fwbl1_setup_checkpoint, . - emit_fwbl1_setup_checkpoint
+
+.type fwbl1_before_eret, %function
+fwbl1_before_eret:
+    /*
+     * The stock restore saves the current SP, switches SPSel to 1, and only
+     * then reads the frame. Therefore the frame is based at SP_EL3, not at the
+     * current SP_EL0 visible at the replaced branch.
+     */
+    mov     x24, sp
+    mrs     x26, SPSel
+    cbnz    x26, .Lfwbl1_frame_sp_selected
+    msr     SPSel, #1
+    isb
+    mov     x25, sp
+    msr     SPSel, #0
+    isb
+    b       .Lfwbl1_frame_sp_ready
+.Lfwbl1_frame_sp_selected:
+    mov     x25, sp
+.Lfwbl1_frame_sp_ready:
+    ldr     x17, [x25, #0x118]
+    ldr     x18, [x25, #0x110]
+    ldr     x19, [x25, #0x120]
+    mov     x21, xzr
+
+    /* Read the target only when it lies inside the measured BL2 image. */
+    ldr     x22, =PROBE_BL2_ENTRY
+    cmp     x17, x22
+    b.lo    .Lfwbl1_bl2_target_done
+    ldr     x23, =PROBE_BL2_LIMIT
+    cmp     x17, x23
+    b.hs    .Lfwbl1_bl2_target_done
+    tst     x17, #3
+    b.ne    .Lfwbl1_bl2_target_done
+    ldr     x21, [x17]
+.Lfwbl1_bl2_target_done:
+
+    /* This is the final diagnostic transfer; its DMA buffer is never reused. */
+    adr     x6, probe_record
+    ldr     x0, =PROBE_UFS_LIVE_BL2_CONTEXT
+    str     x0, [x6]
+    mov     w7, #1
+    str     w7, [x6, #0x8]
+    mov     w7, #PROBE_RECORD_SIZE
+    str     w7, [x6, #0xc]
+    mov     x7, #1
+    str     x7, [x6, #0x10]
+    mov     x7, #14
+    str     x7, [x6, #0x18]
+    mrs     x7, CurrentEL
+    str     x7, [x6, #0x20]
+    stp     x17, x18, [x6, #0x28]      /* saved ELR_EL3, SPSR_EL3 */
+    stp     x19, x24, [x6, #0x38]      /* saved SCR_EL3, current SP */
+    stp     x25, x21, [x6, #0x48]      /* SP_EL3 frame base, target qword */
+    str     x26, [x6, #0x58]           /* SPSel before stock restore */
+    mov     x0, x6
+    mov     w1, #PROBE_RECORD_SIZE
+    bl      probe_usb_send_bounded
+    ldr     x16, =PROBE_FWBL1_CONTEXT_RESTORE /* replay B at 0x02026100 */
+    br      x16
+.size fwbl1_before_eret, . - fwbl1_before_eret
 #endif
 
 #ifdef EPBL_KEY_STATE
