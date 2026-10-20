@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import struct
 import os
 import sys
 from pathlib import Path
@@ -47,27 +48,62 @@ MOV_W0_ZERO = bytes.fromhex("00 00 80 52")
 MOV_W19_ZERO = bytes.fromhex("13 00 80 52")
 MOV_W20_ZERO = bytes.fromhex("14 00 80 52")
 
+# The stub is built here from this file's OWN constants rather than copied
+# out of a produced image, so a wrong stub cannot validate itself. The caller
+# gate in particular is reconstructed from LDFW_SUCCESS_CALL_OFFSET: the stub
+# must refuse to act unless it was entered from that one site.
+UBOOT_VA_BASE = 0xC9000000
+
+
+def _caller_gate_words():
+    lr = UBOOT_VA_BASE + LDFW_SUCCESS_CALL_OFFSET + 4
+    return (
+        0x52800001 | ((lr & 0xFFFF) << 5),          # movz w1, #lo16(lr)
+        0x72A00001 | (((lr >> 16) & 0xFFFF) << 5),  # movk w1, #hi16(lr), lsl #16
+        0xEB0103DF,                                  # cmp x30, x1
+    )
+
+
+# The two one-shot OTP wrappers, as the differential gate names them.
+OTP_WRITE_KEY2_OFFSET = 0xA278C
+OTP_WRITE_USE_KEY2_OFFSET = 0xA2BE0
+
+
+def _bl(word_index, target_offset):
+    """Encode the BL the stub must contain, from offsets this file knows."""
+    site = CHECK_SIGNATURE_OFFSET + word_index * 4
+    return 0x94000000 | (((target_offset - site) // 4) & 0x03FFFFFF)
+
+
+def _stub(words):
+    return b"".join(struct.pack("<I", w) for w in words)
+
+
 STUBS = {
-    "program": bytes.fromhex(
-        "fd 7b bf a9"  # stp x29, x30, [sp, #-0x10]!
-        " c0 00 00 10"  # adr x0, embedded anchor
-        " 01 04 80 52"  # mov w1, #0x20
-        " c6 4a 01 94"  # bl cm_otp_write_rom_sec_boot_key2
-        " 00 00 80 d2"  # mov x0, #0
-        " fd 7b c1 a8"  # ldp x29, x30, [sp], #0x10
-        " c0 03 5f d6"  # ret
-    ),
-    "program-use": bytes.fromhex(
-        "fd 7b bf a9"  # stp x29, x30, [sp, #-0x10]!
-        " 00 01 00 10"  # adr x0, embedded anchor
-        " 01 04 80 52"  # mov w1, #0x20
-        " c6 4a 01 94"  # bl cm_otp_write_rom_sec_boot_key2
-        " 40 00 00 b5"  # cbnz x0, out
-        " d9 4b 01 94"  # bl cm_otp_write_use_rom_sec_boot_key2
-        " 00 00 80 d2"  # mov x0, #0
-        " fd 7b c1 a8"  # ldp x29, x30, [sp], #0x10
-        " c0 03 5f d6"  # ret
-    ),
+    "program": _stub((
+        0xA9BF7BFD,                 # stp x29, x30, [sp, #-0x10]!
+        *_caller_gate_words(),
+        0x54000081,                 # b.ne out   (+4 words)
+        0x100000C0,                 # adr x0, embedded anchor (+24)
+        0x52800401,                 # mov w1, #0x20
+        _bl(7, OTP_WRITE_KEY2_OFFSET),
+        0xD2800000,                 # out: mov x0, #0
+        0xA8C17BFD,                 # ldp x29, x30, [sp], #0x10
+        0xD65F03C0,                 # ret
+    )),
+    "program-use": _stub((
+        0xA9BF7BFD,                 # stp x29, x30, [sp, #-0x10]!
+        *_caller_gate_words(),
+        0x540000C1,                 # b.ne out   (+6 words)
+        0x10000100,                 # adr x0, embedded anchor (+32)
+        0x52800401,                 # mov w1, #0x20
+        _bl(7, OTP_WRITE_KEY2_OFFSET),
+        0xB5000040,                 # cbnz x0, out
+        _bl(9, OTP_WRITE_USE_KEY2_OFFSET),
+        0xD2800000,                 # out: mov x0, #0
+        0xA8C17BFD,                 # ldp x29, x30, [sp], #0x10
+        0xD65F03C0,                 # ret
+    )),
 }
 
 
@@ -186,7 +222,9 @@ def main() -> int:
     print("boot path    forced through the normal-boot fork")
     print("mode gates   three stale EUB DRAM reads forced to zero in u-boot")
     print("post-LDFW   only the initializer SUCCESS path calls the OTP stub")
-    print("late retry   uH image loader still calls the OTP stub after secure init")
+    print("caller gate  the OTP command runs only when LR == "
+          f"{UBOOT_VA_BASE + LDFW_SUCCESS_CALL_OFFSET + 4:#x}; the other nine\n"
+          "             check_signature callers reach the stub and no-op")
     print("result       PASS")
     return 0
 
