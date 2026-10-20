@@ -1388,7 +1388,12 @@ EOF
         case "${2:-eng}" in
             eng)    TRIPLE_IMAGE="$CONTROL_IMAGE"; TRIPLE_EPBL="$CUSTOM/ecdsa_eng/sboot/epbl.bin" ;;
             forced) TRIPLE_IMAGE="$FORCED_IMAGE";  TRIPLE_EPBL="$FORCED_CHAIN/sboot/epbl.bin" ;;
-            *)      echo "usage: $0 native-triple {eng|forced}" >&2; exit 2 ;;
+            # Stock stages under Samsung's own ST2-TEE key, with only the ST1
+            # anchor ours. It splits the black screen: if this boots, the UFS
+            # failure is our resigned stages; if it is black too, it is the
+            # EPBL surgery, even though the BootROM verifier returns 1.
+            minimal) TRIPLE_IMAGE="$CUSTOM/minimal/sboot.bin"; TRIPLE_EPBL="$CUSTOM/minimal/sboot/epbl.bin" ;;
+            *)      echo "usage: $0 native-triple {eng|forced|minimal}" >&2; exit 2 ;;
         esac
         [[ -f "$TRIPLE_IMAGE" && -f "$TRIPLE_EPBL" ]] || {
             echo "error: missing $TRIPLE_IMAGE or $TRIPLE_EPBL" >&2
