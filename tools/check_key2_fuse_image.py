@@ -18,16 +18,25 @@ CHECK_SIGNATURE_CALLERS = (
     0x50AF4,
     0x52954,
     0x55C1C,
-    0xA63E4,
-    0xA6460,
     0xA64A4,
-    0xA64D0,
     0xB6A4C,
     0xB6C48,
     0xB9170,
 )
 UH_LOADER_CHECK_SIGNATURE_CALL_OFFSET = 0xB9170
-POST_LDFW_CALL_OFFSETS = (0xA63E4, 0xA6460, 0xA64A4, 0xA64D0)
+# The CM/LDFW initializer's four mutually exclusive result diagnostics,
+# resolved by message in sboot_patch.patch_key2_after_ldfw:
+#
+#   0xA63E4  "ldfw: No ldfw is inited"
+#   0xA6460  "ldfw: signature of ldfw is corrupted!"
+#   0xA64A4  "ldfw: try to init ... have been inited done."   <- success
+#   0xA64D0  "ldfw: It is dump_gpr state. It does not load ldfw."
+#
+# Only the success path may reach the stub. On the other three the LDFW never
+# came up, so the OTP service does not exist, and the command behind the stub
+# burns a one-shot fuse.
+LDFW_SUCCESS_CALL_OFFSET = 0xA64A4
+LDFW_FAILURE_CALL_OFFSETS = (0xA63E4, 0xA6460, 0xA64D0)
 FORCE_SECURE_PAYLOAD_OFFSET = 0x1F330
 NORMAL_BOOT_CALL_OFFSET = 0x38F0
 MAGIC_CODE_LOAD_OFFSET = 0x33F0
@@ -142,6 +151,18 @@ def main() -> int:
     if data[LDFW_MODE1_LOAD_OFFSET:LDFW_MODE1_LOAD_OFFSET + 4] != MOV_W19_ZERO:
         raise ValueError("LDFW mode word 1 read is not forced to zero")
 
+    if branch_target(data, LDFW_SUCCESS_CALL_OFFSET) != CHECK_SIGNATURE_OFFSET:
+        raise ValueError(
+            "the CM/LDFW success path does not call the KEY2 OTP stub"
+        )
+    for offset in LDFW_FAILURE_CALL_OFFSETS:
+        if branch_target(data, offset) == CHECK_SIGNATURE_OFFSET:
+            raise ValueError(
+                f"a CM/LDFW FAILURE path at {offset:#x} reaches the KEY2 OTP "
+                "stub; the service does not exist there and the command burns "
+                "a one-shot fuse"
+            )
+
     callers = tuple(
         offset
         for offset in range(0, len(data) - 3, 4)
@@ -155,9 +176,6 @@ def main() -> int:
     if u32(data, UH_LOADER_CHECK_SIGNATURE_CALL_OFFSET + 4) & 0xFF00001F \
             != 0x35000000:
         raise ValueError("uH loader no longer checks the OTP stub return with cbnz w0")
-    if any(branch_target(data, offset) != CHECK_SIGNATURE_OFFSET
-           for offset in POST_LDFW_CALL_OFFSETS):
-        raise ValueError("a CM/LDFW result path no longer calls the KEY2 OTP stub")
 
     print(f"mode         {args.mode}")
     print(f"sboot        {image}")
@@ -167,7 +185,7 @@ def main() -> int:
     print("secure path  forced on for CM/LDFW initialization")
     print("boot path    forced through the normal-boot fork")
     print("mode gates   three stale EUB DRAM reads forced to zero in u-boot")
-    print("post-LDFW   every initializer result path calls the OTP stub exactly once")
+    print("post-LDFW   only the initializer SUCCESS path calls the OTP stub")
     print("late retry   uH image loader still calls the OTP stub after secure init")
     print("result       PASS")
     return 0

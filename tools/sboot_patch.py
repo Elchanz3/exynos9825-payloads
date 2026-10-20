@@ -921,14 +921,31 @@ class Patcher:
         self._write(0, struct.pack("<I", encode_b(0, cave)),
                     "entry -> clear-boot-magic")
 
+    #: the one LDFW outcome that means the OTP service exists. Hardware
+    #: reported exactly this message once cm.bin was re-signed with our key.
+    LDFW_SUCCESS_MESSAGE = (
+        "ldfw: try to init %d ldfw(s). except %d ldfw %d ldfw(s) "
+        "have been inited done.\n"
+    )
+
     def patch_key2_after_ldfw(self):
-        # Retry the KEY2 programming stub immediately after the CM/LDFW
-        # initializer returns. The initializer has four mutually exclusive
-        # result diagnostics (no LDFW, signature error, partial/successful
-        # initialization, and dump-GPR mode), and every path then converges on
-        # the original secure-chip-state query. Replacing each diagnostic's
-        # printf call means exactly one OTP attempt runs per boot while the
-        # original control flow and state query remain intact.
+        # Fire the KEY2 programming stub on the CM/LDFW initializer's SUCCESS
+        # path, and only there.
+        #
+        # The initializer has four mutually exclusive result diagnostics: no
+        # LDFW, signature error, initialization done, and dump-GPR mode. An
+        # earlier version of this patch replaced the printf call in all four,
+        # reasoning that because they are mutually exclusive exactly one OTP
+        # attempt runs per boot. That reasoning is true and beside the point.
+        # Three of the four are failure paths, where the LDFW never came up
+        # and the OTP service does not exist -- and the command this stub
+        # reaches burns a one-shot fuse. Issuing it from a path where the
+        # service is absent is a write in an unknown state, which is the whole
+        # thing gate D exists to prevent.
+        #
+        # All four sites are still resolved, because resolving them is what
+        # proves the structure is the one this patch was written against, and
+        # the three that are left alone are asserted to still call the printf.
         #
         # The external custom-key patcher has already replaced
         # check_signature with the KEY2 OTP stub. Locate that entry through
@@ -944,7 +961,7 @@ class Patcher:
         result_messages = (
             "ldfw: No ldfw is inited\n",
             "ldfw: signature of ldfw is corrupted! ret = [0x%llX]\n",
-            "ldfw: try to init %d ldfw(s). except %d ldfw %d ldfw(s) have been inited done.\n",
+            self.LDFW_SUCCESS_MESSAGE,
             "ldfw: It is dump_gpr state. It does not load ldfw.\n",
         )
         print_target = None
@@ -975,12 +992,26 @@ class Patcher:
                 )
             sites.append(site)
 
-        for site in sites:
-            self._write(
-                site,
-                struct.pack("<I", encode_bl(site, key2_stub)),
-                "KEY2 retry after LDFW",
-            )
+        success_index = result_messages.index(self.LDFW_SUCCESS_MESSAGE)
+        success_site = sites[success_index]
+
+        # Everything that is NOT the success path must be left calling the
+        # printf. Checked rather than assumed, so a future edit that patches
+        # one of them cannot pass silently.
+        for message, site in zip(result_messages, sites):
+            if site is success_site:
+                continue
+            if bl_target(self.data, site) != print_target:
+                raise KeyError(
+                    f"refusing to leave {message!r} wired to "
+                    f"{bl_target(self.data, site):#x} instead of the printf"
+                )
+
+        self._write(
+            success_site,
+            struct.pack("<I", encode_bl(success_site, key2_stub)),
+            "KEY2 program on the LDFW success path only",
+        )
 
     def patch_check_signature(self):
         self.stub_function_at_string(

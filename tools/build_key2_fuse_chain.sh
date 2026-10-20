@@ -36,8 +36,9 @@ mkdir -p "$CHAIN"
 # USB/EUB leaves both the LDFW early-exit words and a live cable request. Patch
 # the u-boot reads after BL2 has initialized DRAM, and make the later download
 # fork take the normal path while preserving w0 as the legitimate zero reason.
-# Retry the installed KEY2 stub on every CM/LDFW initializer result path; those
-# paths are mutually exclusive, so exactly one post-initializer attempt runs.
+# Wire the installed KEY2 stub to the CM/LDFW initializer's SUCCESS path only.
+# The other three results are failure paths where the LDFW never came up, and
+# the OTP service does not exist there; see patch_key2_after_ldfw.
 python3 "$REPO/tools/sboot_patch.py" \
     "$CHAIN/sboot/u-boot.bin" --normal-boot --key2-post-ldfw --no-eng
 
