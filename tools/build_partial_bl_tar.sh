@@ -32,8 +32,27 @@ WORK="$REPO/build/partial_bl"
 OUT="${1:-$REPO/build/partial_bl/BL_custom_keystorage.tar.md5}"
 
 SRC_BL="$(ls "$FW"/BL_*.tar.md5)"
-KEEP=(param.bin.lz4 up_param.bin.lz4 keystorage.bin.lz4 uh.bin.lz4 vbmeta.img.lz4)
-DROP=(sboot.bin.lz4 cm.bin.lz4)
+# MODE=partial  Samsung's components with our keystorage; sboot and cm left
+#               on the device untouched. Use when ours are already flashed.
+# MODE=full     everything the BOOTLOADER chain needs, ours included, in one
+#               tar. Use on a fresh board: one Odin step instead of three,
+#               so there is no window where our cm.bin sits under a stock
+#               sboot, which does not boot.
+MODE="${MODE:-partial}"
+OUR_SBOOT="${OUR_SBOOT:-/home/chanz22/EUB-N10/9825_customkey/ecdsa_eng/sboot.bin}"
+OUR_CM="${OUR_CM:-$REPO/build/custom_cm/cm.bin}"
+
+case "$MODE" in
+    partial)
+        KEEP=(param.bin.lz4 up_param.bin.lz4 keystorage.bin.lz4 uh.bin.lz4 vbmeta.img.lz4)
+        DROP=(sboot.bin.lz4 cm.bin.lz4)
+        ;;
+    full)
+        KEEP=(sboot.bin.lz4 param.bin.lz4 up_param.bin.lz4 cm.bin.lz4 keystorage.bin.lz4 uh.bin.lz4 vbmeta.img.lz4)
+        DROP=()
+        ;;
+    *) echo "error: MODE must be partial or full" >&2; exit 2 ;;
+esac
 
 command -v lz4 >/dev/null || { echo "error: lz4 is not installed" >&2; exit 1; }
 
@@ -56,9 +75,22 @@ lz4 -9 -f --content-size -B6 "$WORK/keystorage.bin" "$WORK/stage/keystorage.bin.
 echo "  frame header stock  : $(xxd -p -l 7 "$WORK/keystorage.stock.lz4" 2>/dev/null || xxd -p -l 7 <(tar xOf "$SRC_BL" keystorage.bin.lz4))"
 echo "  frame header ours   : $(xxd -p -l 7 "$WORK/stage/keystorage.bin.lz4")"
 
+if [[ "$MODE" == full ]]; then
+    echo
+    echo "== substituting our sboot and our cm =="
+    for pair in "$OUR_SBOOT:sboot.bin" "$OUR_CM:cm.bin"; do
+        src="${pair%%:*}"; name="${pair##*:}"
+        [[ -f "$src" ]] || { echo "error: missing $src" >&2; exit 1; }
+        lz4 -9 -f --content-size -B6 "$src" "$WORK/stage/$name.lz4" >/dev/null
+        echo "  $name  <- $src  ($(stat -c%s "$src") bytes)"
+    done
+fi
+
 echo
 echo "== dropping what must stay ours =="
-for f in "${DROP[@]}"; do rm -f "$WORK/stage/$f"; echo "  out: $f"; done
+if [[ ${#DROP[@]} -eq 0 ]]; then echo "  (nothing: MODE=full ships the whole chain)"; else
+    for f in "${DROP[@]}"; do rm -f "$WORK/stage/$f"; echo "  out: $f"; done
+fi
 
 echo
 echo "== building the tar =="
