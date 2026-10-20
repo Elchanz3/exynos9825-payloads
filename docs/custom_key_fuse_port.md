@@ -1200,9 +1200,51 @@ So the whole route is proven end to end: our anchor is in the SoC, written
 by the device's own CryptoManager over the buffer path command `0x16` uses,
 from a chain that never touched UFS.
 
-**What is not yet known is whether `0x16` also set `USE_KEY2`.** That was
-the one risk that could not be retired by analysis, because `cm.bin` is
-encrypted. It is answered by `run_key_state_test.sh`, read-only: if
-`SEC0` still reads `0x00000001` with `C=0`, the command did only what its
-name says and the board still boots stock. Until that read is in, this
-section is a success with an open question attached.
+### `0x16` did not commit, measured
+
+`run_key_state_test.sh` was run straight afterwards. Against the baseline
+taken hours earlier, nothing moved:
+
+```text
+before   SEC0 = 0x00000001   SEC1 = 0x10000006   A=0 B=0 C=0 D=0 E=1 F=0 G=0
+after    SEC0 = 0x00000001   SEC1 = 0x10000006   A=0 B=0 C=0 D=0 E=1 F=0 G=0
+selector would pick = 0x10003000, fused KEY (E==1)
+pointer the ROM left = 0x10003000        agreement OK
+KEY2 slot = programmed
+```
+
+So command `0x16` is purely the slot write. It sets no SEC bit, the
+selector still returns Samsung's fused KEY, and the board boots stock
+exactly as it did this morning. Odin still works, no test point is needed
+for an ordinary boot, and the one-shot slot is spent on the right value.
+The risk that could not be retired by reading an encrypted `cm.bin` has
+been retired by measurement instead.
+
+### What this does and does not settle about gate C
+
+It settles that `0x16` moves nothing. That was worth knowing and it is why
+the board is still ordinary.
+
+It does **not** settle the C/D mapping. The reasoning recorded earlier --
+"program the hash, then read SEC0/SEC1 and see which bits the command
+moved" -- assumed `0x16` would move some. It moved none, so there is no
+delta to read a mapping out of. Whether `C` is `USE_KEY2` and `D` is
+`BAN_KEY2` is exactly as unproven as it was yesterday, and the only command
+that would show it is `0x17`, which is the commit itself.
+
+That matters for the escape hatch. `BAN_KEY2` as a way back from a bad
+activation still rests on an inference, and nothing short of activating can
+test it.
+
+### Position now
+
+| | |
+|---|---|
+| KEY2 slot | holds our anchor, **not consulted** |
+| boot behaviour | unchanged; stock bootloader, Odin, no test point |
+| irreversible steps left before persistence | one, `0x17` |
+| blocking `0x17` | the UFS boot, still unexplained |
+
+`0x17` must not run until a chain of ours is known to boot from UFS,
+because after it the ROM stops consulting Samsung's key and the board boots
+our chain or nothing.
