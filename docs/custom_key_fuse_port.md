@@ -1175,3 +1175,34 @@ same day, which confirms that constant independently.
 Nothing is programmed. The measurement gate C needs is the difference in
 `SEC0`/`SEC1` across a `0x16` run, and both halves of the "before" are now
 dated today.
+
+## 2026-10-20: KEY2 is programmed
+
+The first irreversible step was taken. `run_key2_program_streamed.sh` was
+run with our re-signed `cm.bin` on the CM partition, the chain streamed over
+EUB, and the read-back agrees with the signer byte for byte:
+
+```text
+expected (get_efuse_data) 1d12d364cf441dfe7d5084a054691cf1c7f71e068e2470881e52ce280c7c330b
+KEY2 slot 0x10003020      1d12d364cf441dfe7d5084a054691cf1c7f71e068e2470881e52ce280c7c330b
+KEY  slot 0x10003000      b444be33c467c9e58ef54d6067641a6ea2fb9d61e2d30ee219d1ad3b79425f0c
+```
+
+The streamed route carried it: `EPBL RX Done`, `BL2 Pass`, DMC01 through
+DMC25, `[U-boot] USB Loading Done`, `[EL3_MON] USB Loading Done`, then EP1
+disappeared as it always does. The chain was
+`build/key2_program_streamed_chain`, u-boot sha256
+`e44f774dbdcc1c2588da97187257a39db6397664f870aa23548000a5aaebcb48`, with the
+caller gate reporting `LR == 0xc90a64a8` and the image passing
+`check_key2_fuse_image program` before anything was sent.
+
+So the whole route is proven end to end: our anchor is in the SoC, written
+by the device's own CryptoManager over the buffer path command `0x16` uses,
+from a chain that never touched UFS.
+
+**What is not yet known is whether `0x16` also set `USE_KEY2`.** That was
+the one risk that could not be retired by analysis, because `cm.bin` is
+encrypted. It is answered by `run_key_state_test.sh`, read-only: if
+`SEC0` still reads `0x00000001` with `C=0`, the command did only what its
+name says and the board still boots stock. Until that read is in, this
+section is a success with an open question attached.
