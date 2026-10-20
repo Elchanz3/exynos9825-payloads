@@ -1142,3 +1142,36 @@ blocker. See the three-position boundary measurement at the end of
 > **Correction (2026-10-18):** the claim elsewhere in this file that
 > the `0x16` buffer is SHA-256 of the public key is wrong. The value is
 > `footer_hmac XOR hmac_key`, verified against Samsung's own fused slot.
+
+## 2026-10-20: the pre-burn baseline, read fresh
+
+Both read-only probes were run in the same session, so the gate C delta that
+follows a programming run has a "before" that nothing has happened to since.
+
+`run_key_dump_test.sh`:
+
+```text
+KEY2 = 0000000000000000000000000000000000000000000000000000000000000000
+KEY  = b444be33c467c9e58ef54d6067641a6ea2fb9d61e2d30ee219d1ad3b79425f0c
+```
+
+`run_key_state_test.sh`:
+
+```text
+SEC0 0x10001000 = 0x00000001      A=0 B=0 C=0 D=0 E=1 F=0 G=0
+SEC1 0x1000b014 = 0x10000006
+PTR_SECUREBOOT_KEY as the ROM left it = 0x10003000
+selector would pick                   = 0x10003000, fused KEY (E==1)
+agreement                             = OK
+boot state   0x02020064 = 0xcb000452
+verify status 0x02020070 = 0x0000101f
+```
+
+Every value matches what this document already recorded, so the older figures
+are still good. The `KEY` slot also matches the constant compiled into
+`epbl_boot_ufs_native_stockkey_probe` for the redirect control earlier the
+same day, which confirms that constant independently.
+
+Nothing is programmed. The measurement gate C needs is the difference in
+`SEC0`/`SEC1` across a `0x16` run, and both halves of the "before" are now
+dated today.
