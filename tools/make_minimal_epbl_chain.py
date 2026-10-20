@@ -29,6 +29,21 @@ BootROM verifier's own operands:
 A public key blob is 20 zero bytes, X (48, big-endian), 20 zero bytes,
 Y (48), then 388 zero bytes.
 
+verify_9825.py reports ==> FAIL on this image, and that verdict does not
+apply here. Its rule for the ST2 stages is "must pass with ours, must NOT
+pass with STOCK", which is right for ecdsa_resigned and ecdsa_eng and wrong
+for this build by construction: keeping Samsung's ST2-TEE key is the whole
+point, so the stock stages must still verify. The `['ours/tee', 'STOCK']`
+in its output is one key counted under two labels -- the embedded
+st2_key_tee X is a6bc5d80a0612e82..., which is Samsung's. The
+`is_stock=False` on the same line is a second cosmetic artefact: the
+verifier's STOCK_ST2_TEE constant is the 136-byte point and the embedded
+blob is the padded 0x20c form, so the equality test fails on length.
+
+What does apply, and passes: ST1 verifies against our embedded
+st1_publickey, the header checksum matches, footer.hmac is consistent with
+hmac_key, and the whole-image footer verifies against our ST2-REE key.
+
 The container's own ST2 footer covers the whole prefix including the EPBL, so
 it has to be re-signed. It is signed with our ST2-REE key and marked
 key_type=1, and our ST2-REE public key goes in the REE slot, so that footer
