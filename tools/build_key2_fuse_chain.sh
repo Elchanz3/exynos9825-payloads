@@ -18,8 +18,25 @@ case "$MODE" in
         FUSE_MODE="key2+use"
         CHECK_MODE="program-use"
         ;;
+    program-streamed)
+        # The same KEY2-only programming chain, built for the route that
+        # actually works. The UFS boot is unexplained and black, but the
+        # streamed route reached the OTP service on hardware: run_otpcheck
+        # got "hasn't been programed yet" back from command 0x114, over the
+        # same 32-byte buffer path command 0x16 uses.
+        #
+        # Two extra patches carry it there, both taken from the otpcheck
+        # chain that proved them: --force-secure-payload opens the load, and
+        # --ignore-secpayload-sentinel gets past the 0xfa11 word the failed
+        # load leaves behind, which otherwise makes the CM/LDFW initializer
+        # return before it reads the CM partition.
+        CHAIN="$REPO/build/key2_program_streamed_chain"
+        FUSE_MODE="key2"
+        CHECK_MODE="program"
+        STREAMED=yes
+        ;;
     *)
-        echo "usage: $0 {program|program-use}" >&2
+        echo "usage: $0 {program|program-use|program-streamed}" >&2
         exit 2
         ;;
 esac
@@ -39,8 +56,14 @@ mkdir -p "$CHAIN"
 # Wire the installed KEY2 stub to the CM/LDFW initializer's SUCCESS path only.
 # The other three results are failure paths where the LDFW never came up, and
 # the OTP service does not exist there; see patch_key2_after_ldfw.
-python3 "$REPO/tools/sboot_patch.py" \
-    "$CHAIN/sboot/u-boot.bin" --normal-boot --key2-post-ldfw --no-eng
+if [[ "${STREAMED:-no}" == yes ]]; then
+    python3 "$REPO/tools/sboot_patch.py" "$CHAIN/sboot/u-boot.bin" \
+        --normal-boot --force-secure-payload --ignore-secpayload-sentinel \
+        --key2-post-ldfw --no-eng
+else
+    python3 "$REPO/tools/sboot_patch.py" \
+        "$CHAIN/sboot/u-boot.bin" --normal-boot --key2-post-ldfw --no-eng
+fi
 
 (
     cd "$CUSTOM"
