@@ -3474,3 +3474,74 @@ What is still possible meanwhile: Download-mode flashing, and cold-boot tests
 of Samsung-signed images. What is blocked: anything needing the payload,
 which includes the minimal chain, because our EPBL only verifies when the
 payload redirects `PTR_SECUREBOOT_KEY`.
+
+### 2026-10-20: the minimal chain is black from UFS too, so it is not the stages
+
+`minimal/sboot.bin` was flashed to BOOTLOADER with the **stock** `cm.bin` on
+CM, and `native-triple minimal` run against it. `EUN3REC0`, `EUN3REC1` and
+`EUN3REC2` arrived at 0.039 s, `EUN3REC3` did not, and **the screen stayed
+black**. Record presence carries no information -- the successful stock run
+lost `EUN3REC3` as well -- so the screen is the whole result.
+
+Every observable matches the successful stock run value for value: key
+selector 1, **post-load verifier 1**, warm/cold gate `0x00000000`, boot flags
+`0x00300edf` then `0x00b00edf`, EPBL entry/gate-load
+`0x14000002`/`0x580002d4`, gate branch `0x54000041`, dispatch literal
+`0x02020128`, `SCTLR_EL3=0x00c51838`, `CurrentEL=0xc`. Only the residual
+dispatch word differs (`0x7466e433`, against `0x7466ecb3` stock), and the cold
+path never reads it.
+
+The image is the point. Against the stock EPBL it differs in 321 bytes, and
+every one of them is identity:
+
+```text
+0x0004..0x0007    4   header checksum
+0x294c..0x29bf   95   st2_key_ree      <- ours
+0x2be4..0x2c57   96   st1_publickey    <- ours
+0x2ddc..0x2dfb   31   hmac             <- ours
+0x2e14..0x2e87   95   signature        <- ours
+```
+
+**Not one byte of EPBL code, and `st2_key_tee` untouched**, so FWBL1, BL2,
+u-boot, el3_mon and secure_payload on UFS are Samsung's own, carrying
+Samsung's signatures, verified against Samsung's key. The same image reached
+the Odin screen when streamed over USB earlier the same day, so it is not
+malformed.
+
+| image on UFS | key redirect | storage path | screen |
+|---|:-:|:-:|---|
+| stock | no | yes | charging screen |
+| `ecdsa_eng` | yes | no (USB) | Download mode |
+| `minimal` | yes | no (USB) | Download mode |
+| `ecdsa_eng` | yes | yes | black |
+| `minimal` | yes | yes | **black** |
+
+So **the resigned ST2 stages are not the cause**. That hypothesis is closed.
+What remains inside the image is the ST1 identity block, plus `st2_key_ree`
+and the container footer re-signed with it.
+
+#### The confound that is left, and it cannot be tested directly
+
+The redirect is present in every black row and absent from the only white
+one. It cannot be separated by testing stock-image-plus-redirect, because the
+BootROM would then verify Samsung's EPBL against our key and reject it for a
+trivial reason. The two are entangled by construction.
+
+What can still be split is inside the image. A variant that keeps Samsung's
+`st2_key_ree` and leaves the container footer alone -- legitimate, since the
+`epbl_pad_tamper` run proved an invalid footer boots -- reduces the diff to
+checksum, `st1_publickey`, `hmac` and `signature`: pure ST1 identity. Black
+there puts it on the identity or the redirect; a boot puts it on
+`st2_key_ree` or the re-signed footer.
+
+#### A hypothesis worth measuring, from where the key lives
+
+`PTR_SECUREBOOT_KEY` is pointed at `custom_boot_key`, which sits inside the
+relocated worker at `RELOCATED_BASE = 0x02025000` (the payload loads at
+`0x02022000`, which is also the EPBL's load destination, which is why the
+worker relocates at all). The post-load verifier returning 1 proves the
+pointer was still good at that moment. It proves nothing about later: the
+EPBL goes on to load and verify FWBL1 and BL2 from UFS itself, and if the UFS
+path reuses `0x02025000`, every verification after our last observation point
+reads a clobbered key and fails. That would be black with a verifier that
+already said 1, and it would not happen on the USB path. Unmeasured.
