@@ -121,7 +121,21 @@ So `cmp w0, #5` is **RID_523K**, and `ifconn_is_ccic_jig_device`'s range
 
 Both route UART *in the kernel*, but sboot only matches 5. 619 k is the
 "ON" variant, which is also what drives sboot's `"%s: JIG On. reboot!!!"`
-path. **Use 523 k**, between CC1 and GND.
+path.
+
+**Knowing the value is not the same as being able to produce it.** The
+Black Hat USA 2020 / HITCON talk "Breaking Samsung's Root of Trust:
+Exploiting Samsung S10 Secure Boot" (Cheng-Yu Chao, "Jeffxx") reports the
+identical `rid == 5` check in the S10's S-Boot, identifies 5 as RID_523K,
+and then states that the author's attempts to fake it with **Type-C VDM,
+accessory mode, and pull-up/pull-down resistors all failed** -- the slides
+conclude a debug cable is required.
+
+So a bare 523 k resistor between CC1 and GND is **not** a validated recipe,
+and the CC1-GND wiring in particular is an assumption this document cannot
+support: on USB-C the RID does not arrive the way the micro-USB ID pin did,
+and someone competent already failed with the obvious approaches. Treat the
+jig as an unsolved problem, not a soldering job.
 
 ### The UART lands on D+ / D-
 
@@ -257,6 +271,9 @@ sboot never reaches it; for those, u-boot's own console is the channel.
 
 ## What is not established
 
+- **How to make the MUIC report RID 5 at all.** This is now the first
+  obstacle, ahead of everything below -- see the Black Hat result above.
+  The firmware side is settled; the physical side is not.
 - **Whether anything from before u-boot reaches the connector at all.**
   sboot has to throw the MUIC switch itself, which says the MUIC is not
   already routing UART when u-boot gets there. If the MAX77705 does not
