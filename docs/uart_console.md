@@ -133,6 +133,23 @@ the USB-C **D+ and D-** pins, not on SBU.
 Which of the two is the phone's transmit line is not settled here. Try
 D+ to the adapter's RX first; if nothing comes out, swap to D-.
 
+### rustproof does not gate this in sboot
+
+The kernel's `com_to_uart_ap()` can substitute `COM_OPEN` for `COM_UART`
+when `rustproof_on` is set, so detecting the jig does not by itself
+guarantee the lines are routed. sboot has a `check_rustproof` of its own,
+at **`0xc902b848`**, which returns the flag and prints `On`/`Off`.
+
+It has exactly one caller, `0xc90568c0`, inside the bootargs/DT builder at
+`0xc9056454`, where the result is folded into a value as
+`w22 | (rustproof << 3) | (ccic << 4)` and appended to a string handed to
+the kernel. Nothing on the `board_ccic_check_uart` -> `ifconn_com_to_uart`
+path consults it.
+
+So in the bootloader, rustproof is **passed to the kernel, not applied**.
+The COM_OPEN substitution is a kernel-era behaviour and does not affect the
+sboot console. (It does mean Android may close the path again after boot.)
+
 `ccic_read_adc` reads the MAX77705 over I2C (slave `0x4a`, register `0x4a`,
 via the write/read pair at `0xc90235bc` / `0xc9023478`). The line just above
 the switch prints `"%s: jig_adc=%02x, cc_adc=%02x\n"` with both values --
