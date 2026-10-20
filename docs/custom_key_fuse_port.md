@@ -1248,3 +1248,45 @@ test it.
 `0x17` must not run until a chain of ours is known to boot from UFS,
 because after it the ROM stops consulting Samsung's key and the board boots
 our chain or nothing.
+
+## 2026-10-20: USE_KEY2 is set and the board boots our bootloader
+
+`run_key2_use_streamed.sh` was run with `ecdsa_eng/sboot.bin` on BOOTLOADER
+and our re-signed `cm.bin` on CM. Afterwards the board **cold-booted on its
+own, with no EUB and no test point**, into Download mode showing the
+engineering flags.
+
+That is the whole objective. The BootROM now verifies against KEY2, KEY2
+holds our anchor, and the chain on UFS is signed with the matching key. The
+device boots a bootloader we built and signed, persistently, across power
+cycles.
+
+### The UFS failure was never real
+
+Every black screen in this document's history came from a cold boot
+verifying our image against Samsung's fused KEY, after an instrumented run
+stalled and reset. The screen never reported the handoff -- `native-nohandoff`
+proved that by producing a charging screen with no handoff at all. The
+reframing that followed turned out to be right: the thing that made our
+chain "fail" on UFS was the absence of the fuse, and setting it removed the
+cause.
+
+Several sections above spent a great deal of effort on a failure that did
+not exist. The bisects they produced -- the minimal chain, the keep-ree
+variant, the stockkey control -- remain useful as artifacts and as a record
+of how the oracle misled, but their conclusions about *where* the chain
+failed were about nothing.
+
+### Gate C can finally be measured
+
+Programming KEY2 moved no SEC bit, so the C/D mapping stayed unproven.
+Setting USE_KEY2 must have moved one. Reading `SEC0`/`SEC1` now, against the
+baseline taken the same day --
+
+```text
+before   SEC0 = 0x00000001   SEC1 = 0x10000006   A=0 B=0 C=0 D=0 E=1 F=0 G=0
+```
+
+-- shows exactly which bit command `0x17` sets. If `SEC0` bit 1 is now set,
+`C = USE_KEY2` is measured rather than inferred, which makes `D = BAN_KEY2`
+the strong reading for the escape hatch instead of a guess.
