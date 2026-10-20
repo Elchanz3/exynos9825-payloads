@@ -91,6 +91,17 @@ STUBS = {
         0xA8C17BFD,                 # ldp x29, x30, [sp], #0x10
         0xD65F03C0,                 # ret
     )),
+    # USE_KEY2 only, for a board whose slot is already programmed. No buffer,
+    # so no adr and no anchor appended -- the command is the single bit.
+    "use": _stub((
+        0xA9BF7BFD,                 # stp x29, x30, [sp, #-0x10]!
+        *_caller_gate_words(),
+        0x54000041,                 # b.ne out   (+2 words)
+        _bl(5, OTP_WRITE_USE_KEY2_OFFSET),
+        0xD2800000,                 # out: mov x0, #0
+        0xA8C17BFD,                 # ldp x29, x30, [sp], #0x10
+        0xD65F03C0,                 # ret
+    )),
     "program-use": _stub((
         0xA9BF7BFD,                 # stp x29, x30, [sp, #-0x10]!
         *_caller_gate_words(),
@@ -165,12 +176,18 @@ def main() -> int:
             f"{actual.hex()}"
         )
 
-    embedded = data[
-        CHECK_SIGNATURE_OFFSET + len(stub):
-        CHECK_SIGNATURE_OFFSET + len(stub) + 32
-    ]
-    if embedded != expected_anchor(args.custom_dir):
-        raise ValueError("embedded KEY2 trust anchor does not match the signer")
+    if args.mode == "use":
+        # Nothing is appended: the USE command takes no buffer. The anchor it
+        # commits to is already in the fuse, put there by an earlier run and
+        # read back from the device.
+        pass
+    else:
+        embedded = data[
+            CHECK_SIGNATURE_OFFSET + len(stub):
+            CHECK_SIGNATURE_OFFSET + len(stub) + 32
+        ]
+        if embedded != expected_anchor(args.custom_dir):
+            raise ValueError("embedded KEY2 trust anchor does not match the signer")
 
     if data[FORCE_SECURE_PAYLOAD_OFFSET:FORCE_SECURE_PAYLOAD_OFFSET + 4] != MOV_W1_ZERO:
         raise ValueError("secure-payload load flag is not forced clear")
@@ -217,7 +234,10 @@ def main() -> int:
     print(f"sboot        {image}")
     print(f"sboot sha256 {digest(image)}")
     print(f"u-boot sha256 {digest(uboot)}")
-    print("anchor       matches the P-384 signer-derived KEY2 value")
+    if args.mode == "use":
+        print("anchor       none embedded; commits to the value already fused")
+    else:
+        print("anchor       matches the P-384 signer-derived KEY2 value")
     print("secure path  forced on for CM/LDFW initialization")
     print("boot path    forced through the normal-boot fork")
     print("mode gates   three stale EUB DRAM reads forced to zero in u-boot")

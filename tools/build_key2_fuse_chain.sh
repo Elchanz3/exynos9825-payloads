@@ -18,6 +18,14 @@ case "$MODE" in
         FUSE_MODE="key2+use"
         CHECK_MODE="program-use"
         ;;
+    use-streamed)
+        # Set USE_KEY2 only, on the streamed route, for a board whose KEY2
+        # slot is already programmed and verified. This is the commit.
+        CHAIN="$REPO/build/key2_use_streamed_chain"
+        FUSE_MODE="use"
+        CHECK_MODE="use"
+        STREAMED=yes
+        ;;
     program-streamed)
         # The same KEY2-only programming chain, built for the route that
         # actually works. The UFS boot is unexplained and black, but the
@@ -36,7 +44,7 @@ case "$MODE" in
         STREAMED=yes
         ;;
     *)
-        echo "usage: $0 {program|program-use|program-streamed}" >&2
+        echo "usage: $0 {program|program-use|program-streamed|use-streamed}" >&2
         exit 2
         ;;
 esac

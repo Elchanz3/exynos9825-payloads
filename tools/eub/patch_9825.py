@@ -356,6 +356,28 @@ def patch_fuse_boot_key(data):
             0xA8C17BFD,  # ldp x29, x30, [sp], #0x10
             0xD65F03C0,  # ret
         ]
+    elif fuse_mode == FUSE_SET_USE_ONLY:
+        # Set USE_KEY2 and nothing else. For a board whose KEY2 slot is
+        # already programmed and read back correct: re-running 0x16 against a
+        # programmed slot may well return an error, and in FUSE_PROGRAM_AND_COMMIT
+        # the cbnz guard would then skip 0x17 and the run would be wasted.
+        #
+        # No key is appended and no adr is emitted, because the USE command
+        # takes no buffer -- it is the single bit.
+        write_use_key2 = otp_program_function(
+            data, b"[OTP] USE_ROM_SEC_BOOT_KEY2 program start\n\0", 0x4, 0x17
+        )
+        print(f"cm_otp_write_use_rom_sec_boot_key2: {write_use_key2:#x}")
+        print("fuse mode: SET USE_KEY2 ONLY - this commits the board to KEY2")
+        body = [
+            0xA9BF7BFD,  # stp x29, x30, [sp, #-0x10]!
+            *gate,       # movz/movk w1, <expected LR> ; cmp x30, x1
+            bne_words(2),   # not our caller -> fall through to the ret
+            jump_to_func_from(check_signature + 5 * 4, write_use_key2),
+            0xD2800000,  # out: mov x0, #0
+            0xA8C17BFD,  # ldp x29, x30, [sp], #0x10
+            0xD65F03C0,  # ret
+        ]
     elif fuse_mode == FUSE_PROGRAM_AND_COMMIT:
         write_use_key2 = otp_program_function(
             data, b"[OTP] USE_ROM_SEC_BOOT_KEY2 program start\n\0", 0x4, 0x17
@@ -381,13 +403,18 @@ def patch_fuse_boot_key(data):
     print("WARNING: patching for burning BOOT_KEY2!")
     # The key is appended after the body, so the adr distance is derived from
     # where the placeholder actually sits rather than assumed.
-    adr_index = body.index(None)
-    body[adr_index] = adr_x0((len(body) - adr_index) * 4)
-    payload = body + list(struct.unpack("<8I", get_efuse_data()))
+    if None in body:
+        adr_index = body.index(None)
+        body[adr_index] = adr_x0((len(body) - adr_index) * 4)
+        payload = body + list(struct.unpack("<8I", get_efuse_data()))
+    else:
+        # USE-only carries no buffer, so no anchor is appended.
+        payload = body
     write_words(data, check_signature, payload)
 
 
 FUSE_PROGRAM_KEY2_ONLY = "key2"       # write KEY2, leave USE_KEY2 alone
+FUSE_SET_USE_ONLY = "use"             # set USE_KEY2 only, for an already-programmed slot
 FUSE_PROGRAM_AND_COMMIT = "key2+use"  # write KEY2 then set USE_KEY2
 
 # Which half of the fuse to emit when should_fuse_key is on. Default to the
