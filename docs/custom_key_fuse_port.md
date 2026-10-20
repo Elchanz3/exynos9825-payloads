@@ -1290,3 +1290,46 @@ before   SEC0 = 0x00000001   SEC1 = 0x10000006   A=0 B=0 C=0 D=0 E=1 F=0 G=0
 -- shows exactly which bit command `0x17` sets. If `SEC0` bit 1 is now set,
 `C = USE_KEY2` is measured rather than inferred, which makes `D = BAN_KEY2`
 the strong reading for the escape hatch instead of a guess.
+
+### Gate C, measured: `C` is `USE_KEY2`
+
+`run_key_state_test.sh` after the commit, against the same-day baseline:
+
+```text
+before   SEC0 = 0x00000001   SEC1 = 0x10000006   A=0 B=0 C=0 D=0 E=1 F=0 G=0
+after    SEC0 = 0x00000003   SEC1 = 0x10000006   A=0 B=0 C=1 D=0 E=1 F=0 G=0
+
+PTR_SECUREBOOT_KEY as the ROM left it = 0x10003020
+selector would pick                   = 0x10003020, fused KEY2 (C==1 && D==0)
+agreement                             = OK
+```
+
+Command `0x17` set exactly one bit: `SEC0` bit 1, which is predicate `C`.
+`SEC1` did not move and neither did any other `SEC0` bit. So **`C` is
+`USE_KEY2`, measured rather than inferred**, and the selector's reading of
+`C==1 && D==0 -> KEY2` is confirmed on hardware by the ROM's own pointer.
+
+This also settles the correction made early in this port. `E` is still `1`
+-- Samsung's `USE_KEY` was never cleared -- and the ROM nevertheless returns
+KEY2, because the `C/D` test runs before `E` is examined. The original claim
+that `E=1` short-circuits to KEY, which this document carried for a while,
+is now wrong by measurement as well as by disassembly.
+
+#### What it means for the escape hatch
+
+`D` is still unmeasured; only running `0x18` would show it. But the pair
+hypothesis now has one half verified behaving exactly as predicted, which
+makes `D = BAN_KEY2` a much better reading than it was this morning.
+
+And the hatch's precondition is confirmed present: `E` remains `1`, so if
+`0x18` does set `D`, the selector falls through `C==1 && D==1` to `E==1` and
+returns Samsung's KEY. A board that needed rescuing would get a working
+stock path back, not an unverifiable one.
+
+| | |
+|---|---|
+| `A` SEC0.8, `B` SEC1.31 | 0, 0 |
+| **`C` SEC0.1 = USE_KEY2** | **1, set by `0x17`, measured** |
+| `D` SEC0.3 = BAN_KEY2? | 0, unmeasured, now strongly indicated |
+| `E` SEC0.0 = USE_KEY | 1, untouched, the fallback is intact |
+| `F` SEC1.0, `G` SEC1.3 | 0, 0 |
