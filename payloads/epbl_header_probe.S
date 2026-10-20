@@ -293,6 +293,23 @@
 #define PROBE_EPBL_WARM_INSN           0xd61f0080
 #define PROBE_EPBL_DISPATCH_LITERAL    0x02022098
 #define PROBE_EPBL_DISPATCH_POINTER    0x02020128
+/*
+ * A place to park the custom secure-boot key that the UFS path cannot reach.
+ *
+ * custom_boot_key normally lives inside the relocated worker at 0x02025000,
+ * in the gap between the EPBL image (0x02022000 + 0x3000) and FWBL1
+ * (PROBE_FWBL1_ENTRY). That gap is free of *images*, which is why the worker
+ * is there, but nothing says the EPBL's own UFS driver leaves it alone --
+ * and the UFS driver only exists on the path that goes black.
+ *
+ * 0x02021800 sits below everything instead: the BootROM's SP is 0x02021400
+ * and AArch64 stacks are full-descending, so the stack never rises into it;
+ * no BootROM literal in 0x02021400..0x02021bff addresses it; the stock EPBL's
+ * only iRAM reference outside its own image is 0x02020128; and the EPBL and
+ * FWBL1 both load above it.
+ */
+#define PROBE_CUSTOM_KEY_LOW           0x02021800
+
 #define PROBE_FWBL1_ENTRY              0x02026010
 #define PROBE_FWBL1_NOIC_CONTINUE      0x02026034
 #define PROBE_FWBL1_FIRST_QWORD        0x0000000000000098
@@ -1017,6 +1034,24 @@ epbl_verified:
      * so the BootROM selector cannot overwrite the pointer afterwards.
      */
     adr     x4, custom_boot_key
+#ifdef EPBL_CUSTOM_KEY_LOW
+    /*
+     * Copy the 32 bytes somewhere the UFS path cannot plausibly reach, and
+     * point at the copy. x4/x5/x6 are dead here -- only w28 is live across
+     * this block, and it is untouched.
+     */
+    ldr     x5, =PROBE_CUSTOM_KEY_LOW
+    ldr     x6, [x4, #0]
+    str     x6, [x5, #0]
+    ldr     x6, [x4, #8]
+    str     x6, [x5, #8]
+    ldr     x6, [x4, #16]
+    str     x6, [x5, #16]
+    ldr     x6, [x4, #24]
+    str     x6, [x5, #24]
+    dsb     sy
+    mov     x4, x5
+#endif
     movz    x6, #0x006c
     movk    x6, #0x0202, lsl #16        /* PTR_SECUREBOOT_KEY = 0x0202006c */
     str     w4, [x6]

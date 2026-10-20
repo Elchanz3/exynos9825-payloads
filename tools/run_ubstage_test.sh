@@ -32,6 +32,8 @@ NATIVE_FORCE_COLD_PAYLOAD="$REPO/build/epbl_boot_ufs_native_force_cold_probe.bin
 NATIVE_FORCE_COLD_ELF="$REPO/build/epbl_boot_ufs_native_force_cold_probe.elf"
 NATIVE_TRIPLE_PAYLOAD="$REPO/build/epbl_boot_ufs_native_triple_probe.bin"
 NATIVE_TRIPLE_ELF="$REPO/build/epbl_boot_ufs_native_triple_probe.elf"
+KEYSAFE_PAYLOAD="$REPO/build/epbl_boot_ufs_native_keysafe_probe.bin"
+KEYSAFE_ELF="$REPO/build/epbl_boot_ufs_native_keysafe_probe.elf"
 NATIVE_TRIPLE_STOCK_PAYLOAD="$REPO/build/epbl_boot_ufs_native_triple_stock_probe.bin"
 NATIVE_TRIPLE_STOCK_ELF="$REPO/build/epbl_boot_ufs_native_triple_stock_probe.elf"
 NATIVE_TRIPLE_RESTORE_PAYLOAD="$REPO/build/epbl_boot_ufs_native_triple_restore_probe.bin"
@@ -45,7 +47,7 @@ ACTION="${1:-}"
 
 usage() {
     cat >&2 <<EOF
-usage: $0 {build|check|flash|trigger|control-check|control-flash|control-trigger|silent-trigger|force-download-check|force-download-flash|force-download-trigger|native-check|native-trigger|native-load-diagnose|native-postload-diagnose|native-timing-diagnose|native-flag-diagnose|native-cold-diagnose|native-force-cold|native-triple|native-triple-stock|native-triple-restore|native-diagnose|trace|calibrate-retention}
+usage: $0 {build|check|flash|trigger|control-check|control-flash|control-trigger|silent-trigger|force-download-check|force-download-flash|force-download-trigger|native-check|native-trigger|native-load-diagnose|native-postload-diagnose|native-timing-diagnose|native-flag-diagnose|native-cold-diagnose|native-force-cold|native-triple|native-keysafe|native-triple-stock|native-triple-restore|native-diagnose|trace|calibrate-retention}
 
   build    regenerate the signed entry-test chain from the stock image
   check    validate its replacement stage and every chain signature
@@ -1381,6 +1383,55 @@ did: black, Samsung logo, Download/Odin, USB RECOVERY prompt, or Android.
 A plain power-on afterwards boots the stock chain normally either way.
 EOF
         ;;
+    native-keysafe)
+        # native-triple with one variable changed: the 32 key bytes the BootROM
+        # verifier dereferences are copied to PROBE_CUSTOM_KEY_LOW (0x02021800)
+        # and the pointer aims there, instead of at custom_boot_key inside the
+        # relocated worker at 0x02025000. Needs the same resigned image on UFS.
+        case "${2:-minimal}" in
+            minimal) KS_IMAGE="$CUSTOM/minimal/sboot.bin"; KS_EPBL="$CUSTOM/minimal/sboot/epbl.bin" ;;
+            eng)     KS_IMAGE="$CONTROL_IMAGE";            KS_EPBL="$CUSTOM/ecdsa_eng/sboot/epbl.bin" ;;
+            *)       echo "usage: $0 native-keysafe {minimal|eng}" >&2; exit 2 ;;
+        esac
+        [[ -f "$KS_IMAGE" && -f "$KS_EPBL" ]] || {
+            echo "error: missing $KS_IMAGE or $KS_EPBL" >&2; exit 1; }
+        make -C "$REPO" build/epbl_boot_ufs_native_keysafe_probe.bin
+        python3 "$REPO/tools/check_native_ufs_payload.py" --triple-records \
+            "$KEYSAFE_ELF" "$KEYSAFE_PAYLOAD" "$KS_EPBL"
+        python3 "$REPO/tools/check_custom_key.py" "$KEYSAFE_PAYLOAD" --candidate efuse
+        cat <<EOF
+
+BOOTLOADER image expected on UFS:
+  $KS_IMAGE
+
+RAM-only: no Odin step and no OTP command. The screen is the oracle --
+a boot means the key was being clobbered where it used to live, a black
+screen means it was not.
+
+== sudo authentication (before the 6.5 second EUB window) ==
+EOF
+        authenticate_sudo
+        rm -f /tmp/exynos9825_ubstage_native_keysafe.bin
+        echo
+        echo "Wait for 'Waiting for EUB 04e8:1234...' before entering EUB."
+        echo
+        set +e
+        sudo "$HOUSTON/.venv/bin/python3" \
+            "$REPO/tools/boot_nonsecure_probe.py" \
+            --houston-dir "$HOUSTON" \
+            --payload "$KEYSAFE_PAYLOAD" \
+            --listen-ep1 25 \
+            --output "/tmp/exynos9825_ubstage_native_keysafe.bin"
+        probe_rc=$?
+        set -e
+        case "$probe_rc" in
+            0|130|143) ;;
+            *) echo "native-keysafe exited with status $probe_rc; the screen is what matters." >&2 ;;
+        esac
+        echo
+        echo "Report what the SCREEN did. Records carry no information here."
+        ;;
+
     native-triple)
         # Which resigned image is on UFS. "eng" is the default because it is
         # the exact image already proven over USB, so a black screen with it

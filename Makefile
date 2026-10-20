@@ -17,7 +17,7 @@ PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
 	epbl_dump_fwbl1_probe epbl_bypass_probe epbl_verify_diag_probe epbl_bootstate_probe epbl_sboot_noverify_probe \
 	epbl_minform_normal_probe epbl_android_boot_probe epbl_inform_dump_probe \
 	epbl_custom_key_hmac_probe epbl_custom_key_efuse_probe \
-	epbl_boot_ufs_probe epbl_key_state_probe epbl_boot_ufs_chain_probe epbl_boot_ufs_plain_probe epbl_boot_ufs_silent_probe epbl_boot_ufs_native_probe epbl_boot_ufs_native_load_diag_probe epbl_boot_ufs_native_postload_diag_probe epbl_boot_ufs_native_timing_diag_probe epbl_boot_ufs_native_flag_diag_probe epbl_boot_ufs_native_cold_diag_probe epbl_boot_ufs_native_force_cold_probe epbl_boot_ufs_native_diag_probe epbl_boot_ufs_native_triple_probe epbl_boot_ufs_native_triple_stock_probe epbl_boot_ufs_native_triple_restore_probe epbl_key_dump_probe \
+	epbl_boot_ufs_probe epbl_key_state_probe epbl_boot_ufs_chain_probe epbl_boot_ufs_plain_probe epbl_boot_ufs_silent_probe epbl_boot_ufs_native_probe epbl_boot_ufs_native_load_diag_probe epbl_boot_ufs_native_postload_diag_probe epbl_boot_ufs_native_timing_diag_probe epbl_boot_ufs_native_flag_diag_probe epbl_boot_ufs_native_cold_diag_probe epbl_boot_ufs_native_force_cold_probe epbl_boot_ufs_native_diag_probe epbl_boot_ufs_native_triple_probe epbl_boot_ufs_native_keysafe_probe epbl_boot_ufs_native_triple_stock_probe epbl_boot_ufs_native_triple_restore_probe epbl_key_dump_probe \
 	epbl_pmu_trace_probe epbl_retention_mark_probe epbl_retention_read_probe \
 	ubstage_hello ubstage_download_marker \
 	epbl_fwbl1_boundary_staged_probe \
@@ -88,6 +88,7 @@ DISASMS    := $(PAYLOADS:%=$(BUILD_DIR)/%.disasm)
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_force_cold_probe.o \
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_diag_probe.o \
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_keysafe_probe.o \
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_stock_probe.o \
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_restore_probe.o \
 	$(BUILD_DIR)/payloads/epbl_android_boot_probe.o \
@@ -429,6 +430,20 @@ $(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_probe.o: \
 # Without EPBL_CUSTOM_KEY the BootROM keeps its own PTR_SECUREBOOT_KEY, so
 # 0x5b58 verifies Samsung's image against Samsung's key and the handoff is a
 # completely stock boot. The three records are the only thing added to it.
+# native-triple with the custom key parked at PROBE_CUSTOM_KEY_LOW instead of
+# inside the relocated worker. One variable against native-triple: where the
+# 32 bytes the BootROM verifier dereferences live. A boot says the worker's
+# address was being overwritten on the UFS path after our last observation
+# point; a black screen says it was not, and clears the idea.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_keysafe_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF \
+		-DEPBL_UFS_NATIVE_TRIPLE -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
+		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_EFUSE \
+		-DEPBL_CUSTOM_KEY_LOW -c $< -o $@
+
 $(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_stock_probe.o: \
 	payloads/epbl_header_probe.S
 	@mkdir -p $(@D)
@@ -727,6 +742,11 @@ $(BUILD_DIR)/epbl_boot_ufs_native_force_cold_probe.elf: \
 
 $(BUILD_DIR)/epbl_boot_ufs_native_triple_probe.elf: \
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_keysafe_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_keysafe_probe.o \
 	arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 
