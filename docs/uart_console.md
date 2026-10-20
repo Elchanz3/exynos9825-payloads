@@ -170,8 +170,8 @@ names next to their nets:
 
 | MAX77705 pin | net |
 |---|---|
-| `DN` | `MUIC_D_N_IFPMIC` -> `MUIC_D_N` -> `USB_DN` |
-| `DP` | `MUIC_D_P_IFPMIC` -> `MUIC_D_P` -> `USB_DP` |
+| `DN` | `MUIC_D_N_IFPMIC` -> (R7039) -> `MUIC_D_N`, out to the receptacle |
+| `DP` | `MUIC_D_P_IFPMIC` -> (R7040) -> `MUIC_D_P`, out to the receptacle |
 | `DN1` | `USB_AP_D_N` |
 | `DP2` | `USB_AP_D_P` |
 | **`UT1`** | **`AP_UART_TXD`** |
@@ -219,8 +219,19 @@ unambiguously -- `MUIC_D_N`, `R7039`, `MUIC_D_N_IFPMIC` share a row, and
 | **`R7039`** | D- | `AP_UART_TXD` -- **the phone's transmit** |
 | `R7040` | D+ | `AP_UART_RXD` |
 
-So `R7039` is the pad to probe for a receive-only tap, and a resistor pad is
-a far kinder target than a USB-C pin. Both appear on the N975F placement
+`MUIC_D_N` / `MUIC_D_P` carry on to the USB-C receptacle, crossing the
+board-to-board connector on sheets 12 and 20 alongside `CC1`, `CC2` and
+`VBUS_IF_5P0` -- the receptacle sits on the sub board. **So the port is the
+primary way in and no soldering is required**; these resistors are the same
+two signals tapped earlier, on the main board, for when the connector is
+inconvenient or when you want to confirm the switch threw without trusting
+the cable.
+
+(`USB_DP` / `USB_DN` are *not* the receptacle. They appear only on sheet 5,
+the factory JTAG/test connector, on their own `JTAG_MUIC_D_*` path. An
+earlier revision of this document conflated the two.)
+
+A resistor pad is also a far kinder target than a USB-C pin. Both appear on the N975F placement
 sheet, **page 47**, stacked vertically beside `ZD7001` / `ZD7002` and
 `V11001`, close to the board edge. Note that sheet is drawn mirrored.
 
