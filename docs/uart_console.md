@@ -195,11 +195,34 @@ line. It is D-.)
 The same page shows `CC_SBU1` / `CC_SBU2` going elsewhere, which confirms
 the negative: the UART is not on SBU.
 
-Two caveats. The schematic is the **N976B** (Note10+ 5G), not the N975F --
-same family, not the same board. And this is pin-name-to-net adjacency read
-out of a text extraction of the PDF, not a parsed netlist; the pin names
-(`UT1`, `UR2`, `DN1`, `DP2`, `ADN1`, `ADP2`) are distinctive enough that the
-pairing is reliable, but ball numbers from the same extraction are not.
+The PDF holds **both models**, not just the 5G one. Pages 1-21 are the
+`SM-N975F` set (its watermark sheet is page 21) and pages 22-42 are
+`SM-N976B` (page 42). The IF_PMIC sheet appears in both, as page 7 and
+page 28, and the two differ only in whitespace -- the MUIC wiring above is
+the N975F's, not an extrapolation from the 5G board. Pages 43 onward are
+component placement: 43-45 for the N976B, 46-49 for the N975F.
+
+One caveat remains: this is pin-name-to-net adjacency read out of a text
+extraction of the PDF, not a parsed netlist. The pin names (`UT1`, `UR2`,
+`DN1`, `DP2`, `ADN1`, `ADP2`) are distinctive enough that the pairing is
+reliable; ball numbers from the same extraction are not, so none are quoted.
+
+### Where to put the probe: R7039 and R7040
+
+The two data lines each run through a series resistor between the MUIC and
+the connector. Reading the word positions off page 7 lines them up
+unambiguously -- `MUIC_D_N`, `R7039`, `MUIC_D_N_IFPMIC` share a row, and
+`MUIC_D_P`, `R7040`, `MUIC_D_P_IFPMIC` share the next:
+
+| resistor | line | carries, in UART mode |
+|---|---|---|
+| **`R7039`** | D- | `AP_UART_TXD` -- **the phone's transmit** |
+| `R7040` | D+ | `AP_UART_RXD` |
+
+So `R7039` is the pad to probe for a receive-only tap, and a resistor pad is
+a far kinder target than a USB-C pin. Both appear on the N975F placement
+sheet, **page 47**, stacked vertically beside `ZD7001` / `ZD7002` and
+`V11001`, close to the board edge. Note that sheet is drawn mirrored.
 
 ### rustproof does not gate this in sboot
 
