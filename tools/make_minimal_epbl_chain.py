@@ -29,18 +29,27 @@ BootROM verifier's own operands:
 A public key blob is 20 zero bytes, X (48, big-endian), 20 zero bytes,
 Y (48), then 388 zero bytes.
 
-verify_9825.py reports ==> FAIL on this image, and that verdict does not
-apply here. Its rule for the ST2 stages is "must pass with ours, must NOT
+verify_9825.py used to report ==> FAIL on this image, and the verdict did
+not apply. Its rule for the ST2 stages is "must pass with ours, must NOT
 pass with STOCK", which is right for ecdsa_resigned and ecdsa_eng and wrong
 for this build by construction: keeping Samsung's ST2-TEE key is the whole
-point, so the stock stages must still verify. The `['ours/tee', 'STOCK']`
-in its output is one key counted under two labels -- the embedded
-st2_key_tee X is a6bc5d80a0612e82..., which is Samsung's. The
-`is_stock=False` on the same line is a second cosmetic artefact: the
-verifier's STOCK_ST2_TEE constant is the 136-byte point and the embedded
-blob is the padded 0x20c form, so the equality test fails on length.
+point, so the stock stages must still verify.
 
-What does apply, and passes: ST1 verifies against our embedded
+Writing that down was not enough -- run_custom_key_test.sh runs under
+`set -e`, so the FAIL aborted the script and the hardware test never
+started. The verifier now recognises the case instead: when the embedded
+st2_key_tee *is* Samsung's, it says so and drops the "must NOT pass with
+STOCK" clause, because "ours/tee" and "STOCK" are then one key under two
+labels. The relaxation is derived from the image, not from a flag, so it
+cannot be turned on for a chain that should be held to the strict rule.
+A copy of the fixed verifier is kept at tools/eub/verify_9825.py, since
+$EUB is not version controlled.
+
+Checked: ecdsa_resigned, ecdsa_eng and ecdsa_fuse still take the strict
+path and still pass, and a one-byte body change to a stage of this image
+is still caught (bl2 -> NO MATCH, whole-image footer -> NO MATCH, exit 1).
+
+What applies here, and passes: ST1 verifies against our embedded
 st1_publickey, the header checksum matches, footer.hmac is consistent with
 hmac_key, and the whole-image footer verifies against our ST2-REE key.
 
