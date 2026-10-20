@@ -3593,3 +3593,61 @@ before anything irreversible.
 Built as `epbl_boot_ufs_native_stockkey_probe`, run with
 `tools/run_ubstage_test.sh native-stockkey`. It needs the stock sboot back on
 BOOTLOADER, which also returns the board to a state that boots on its own.
+
+### 2026-10-20: the redirect is cleared, and Samsung puts the same key in both slots
+
+`native-stockkey` was run with the stock `sboot.bin` back on BOOTLOADER and
+the redirect machinery fully active, aimed at Samsung's own fused KEY value.
+**Charging screen.** So the redirect is harmless on the UFS path, and the
+failure is inside the image.
+
+| image on UFS | pointer aims at | screen |
+|---|---|---|
+| stock | fuse slot, no redirect | charging screen |
+| stock | **Samsung's value in iRAM** | **charging screen** |
+| `minimal` | our key in iRAM | black |
+| `ecdsa_eng` | our key in iRAM | black |
+
+Rows 1 and 2 differ only in where the pointer aims, so the redirect is clean.
+Rows 2 and 3 differ only in the image, so the image is the variable. Both
+halves of the entanglement are now resolved.
+
+#### A property of the stock image that both our builds break
+
+```text
+stock       tee=a6bc5d80a0612e82...  ree=a6bc5d80a0612e82...  tee == ree
+minimal     tee=a6bc5d80a0612e82...  ree=cdcc93e17e0a214d...  differ
+ecdsa_eng   tee=21010375c300ea56...  ree=cdcc93e17e0a214d...  differ
+```
+
+**Samsung puts the same key in both ST2 slots.** Every image that boots has
+`st2_key_tee == st2_key_ree`; every image that is black has them different.
+That is 4/4 across the table, and it suggests the storage path verifies with
+the REE slot where the USB path uses the TEE slot -- which would explain the
+whole history at once, including why `ecdsa_eng` fails even though its stages
+are signed with its own TEE key.
+
+It is a fit, not a mechanism. Nothing in the disassembly has been shown to
+select the slot by boot source yet.
+
+#### The chain that tests it
+
+`make_minimal_epbl_chain.py --keep-ree` leaves Samsung's `st2_key_ree` in
+place and leaves the container footer stale -- harmless at boot, as the
+`epbl_pad_tamper` run established. The result differs from the stock 4 MB
+image in **226 bytes, every one of them the ST1 anchor**:
+
+```text
+0x0004..0x0007    4   header checksum
+0x2be4..0x2c57   96   st1_publickey
+0x2ddc..0x2dfb   31   hmac
+0x2e14..0x2e87   95   signature
+```
+
+Both key slots are Samsung's. Run with
+`tools/run_ubstage_test.sh native-triple keepree`.
+
+A charging screen means the REE slot was the whole problem, and the fix for
+`ecdsa_eng` is to sign the container with the same key that is in the TEE
+slot. A black screen puts it on the ST1 anchor itself, 226 bytes that the
+BootROM verifier has already accepted -- a much stranger place to be.

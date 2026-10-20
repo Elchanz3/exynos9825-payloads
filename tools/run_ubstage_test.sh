@@ -1494,7 +1494,10 @@ EOF
             # failure is our resigned stages; if it is black too, it is the
             # EPBL surgery, even though the BootROM verifier returns 1.
             minimal) TRIPLE_IMAGE="$CUSTOM/minimal/sboot.bin"; TRIPLE_EPBL="$CUSTOM/minimal/sboot/epbl.bin" ;;
-            *)      echo "usage: $0 native-triple {eng|forced|minimal}" >&2; exit 2 ;;
+            # Same, but Samsung's st2_key_ree kept and the container footer
+            # left stale. 226 bytes from stock, all of them the ST1 anchor.
+            keepree) TRIPLE_IMAGE="$CUSTOM/minimal_keepree/sboot.bin"; TRIPLE_EPBL="$CUSTOM/minimal_keepree/sboot/epbl.bin" ;;
+            *)      echo "usage: $0 native-triple {eng|forced|minimal|keepree}" >&2; exit 2 ;;
         esac
         [[ -f "$TRIPLE_IMAGE" && -f "$TRIPLE_EPBL" ]] || {
             echo "error: missing $TRIPLE_IMAGE or $TRIPLE_EPBL" >&2

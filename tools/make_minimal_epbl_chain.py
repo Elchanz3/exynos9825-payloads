@@ -216,6 +216,10 @@ def main():
     ap.add_argument("--stock", default="/home/chanz22/EUB-N10/9825_customkey/input/sboot.bin")
     ap.add_argument("--keys", default="/home/chanz22/EUB-N10/9825_customkey/keys")
     ap.add_argument("--out", default="build/minimal_epbl_chain/sboot.bin")
+    ap.add_argument("--keep-ree", action="store_true",
+                    help="leave Samsung's st2_key_ree and the container footer "
+                         "untouched, so the only difference from stock is the "
+                         "ST1 anchor; splits the REE slot off from the anchor")
     ap.add_argument("--epbl-pad-tamper", action="store_true",
                     help="better control: flip one byte of the EPBL's own "
                          "unsigned ST1 padding, which the UFS-load probe can "
@@ -246,7 +250,8 @@ def main():
     # --- the EPBL: swap only the ST1 anchor and the REE slot ---
     st1_pub = pubkey_blob(st1.public_key())
     data[OFF_ST1_PUB:OFF_ST1_PUB + KEY_BLOB] = st1_pub
-    data[OFF_ST2_REE:OFF_ST2_REE + KEY_BLOB] = pubkey_blob(st2r.public_key())
+    if not args.keep_ree:
+        data[OFF_ST2_REE:OFF_ST2_REE + KEY_BLOB] = pubkey_blob(st2r.public_key())
     data[OFF_HMAC:OFF_HMAC + 0x20] = hmaclib.digest(
         hmac_key, st1_pub[:136], hashlib.sha512)[:32]
     # Keep Samsung's timestamp and TEE key: the stages must still verify.
@@ -258,10 +263,18 @@ def main():
     data[OFF_SIGNATURE:OFF_SIGNATURE + SIG_LEN] = sign_p384(st1, epbl_digest)
     data[OFF_CHECKSUM:OFF_CHECKSUM + 4] = header_digest(data[:EPBL_SIZE])
 
-    # --- the container footer, re-signed with the REE key it now carries ---
-    struct.pack_into("<I", data, CONTAINER_FOOTER + 8, 1)       # key_type = ree
-    container_digest = hashlib.sha512(bytes(data[:CONTAINER_SIGNED_END])).digest()
-    data[CONTAINER_SIG:CONTAINER_SIG + SIG_LEN] = sign_p384(st2r, container_digest)
+    if args.keep_ree:
+        # Leave Samsung's REE key in place and leave the container footer
+        # exactly as it came. The footer is then stale, which the
+        # epbl_pad_tamper run proved is harmless at boot -- only u-boot's
+        # Download/OTA path parses it. That trade buys a chain whose only
+        # difference from stock is the ST1 anchor itself.
+        pass
+    else:
+        # --- the container footer, re-signed with the REE key it now carries ---
+        struct.pack_into("<I", data, CONTAINER_FOOTER + 8, 1)   # key_type = ree
+        container_digest = hashlib.sha512(bytes(data[:CONTAINER_SIGNED_END])).digest()
+        data[CONTAINER_SIG:CONTAINER_SIG + SIG_LEN] = sign_p384(st2r, container_digest)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
