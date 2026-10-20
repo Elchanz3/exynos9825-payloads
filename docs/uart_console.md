@@ -155,15 +155,51 @@ support: on USB-C the RID does not arrive the way the micro-USB ID pin did,
 and someone competent already failed with the obvious approaches. Treat the
 jig as an unsolved problem, not a soldering job.
 
-### The UART lands on D+ / D-
+### The UART lands on D+ / D-, and the schematic says which is which
 
 `COM_UART` (`include/linux/muic/max77705-muic.h:369`) writes
 `MAX77705_MUIC_COM_UART = 0x03` into *both* `COMP2SW` and `COMN1SW` -- the
 MUIC's switches for the connector's DP and DN. So the serial port appears on
 the USB-C **D+ and D-** pins, not on SBU.
 
-Which of the two is the phone's transmit line is not settled here. Try
-D+ to the adapter's RX first; if nothing comes out, swap to D-.
+A board schematic settles the rest.
+`Samsung_Galaxy_Note_10_+_Schematic_Diagram.pdf`
+(`SM-N976B_SLAVE_REV0.6_0517_FINAL`, Mentor Graphics, Aug 2019, 168 pages)
+page 7 is the IF_PMIC page, and the MAX77705's pins carry their datasheet
+names next to their nets:
+
+| MAX77705 pin | net |
+|---|---|
+| `DN` | `MUIC_D_N_IFPMIC` -> `MUIC_D_N` -> `USB_DN` |
+| `DP` | `MUIC_D_P_IFPMIC` -> `MUIC_D_P` -> `USB_DP` |
+| `DN1` | `USB_AP_D_N` |
+| `DP2` | `USB_AP_D_P` |
+| **`UT1`** | **`AP_UART_TXD`** |
+| **`UR2`** | **`AP_UART_RXD`** |
+| `AUT1` / `AUR2` | the CP-side UART, via a discrete "UART SWITCH" on `UART_CTRL` |
+| `CC1` / `CC2` | `CC1` / `CC2` |
+| `JIG` | `JIG_ONB_CC` |
+| `UID` | `JTAG_USB_ID` |
+
+`COMN1SW` picks what reaches `DN` out of {`DN1`, `UT1`, `ADN1`} and
+`COMP2SW` picks what reaches `DP` out of {`DP2`, `UR2`, `ADP2`}. In UART
+mode that gives:
+
+- **D- carries `UT1` = `AP_UART_TXD`** -- the phone transmits here. This
+  is the pin the adapter's **RX** goes to.
+- **D+ carries `UR2` = `AP_UART_RXD`** -- the phone listens here.
+
+(An earlier revision of this document guessed D+ for the phone's transmit
+line. It is D-.)
+
+The same page shows `CC_SBU1` / `CC_SBU2` going elsewhere, which confirms
+the negative: the UART is not on SBU.
+
+Two caveats. The schematic is the **N976B** (Note10+ 5G), not the N975F --
+same family, not the same board. And this is pin-name-to-net adjacency read
+out of a text extraction of the PDF, not a parsed netlist; the pin names
+(`UT1`, `UR2`, `DN1`, `DP2`, `ADN1`, `ADP2`) are distinctive enough that the
+pairing is reliable, but ball numbers from the same extraction are not.
 
 ### rustproof does not gate this in sboot
 
@@ -331,7 +367,6 @@ sboot never reaches it; for those, u-boot's own console is the channel.
   If it turns out the MUIC stays on USB, the AP-side UART pads between the
   SoC and the MUIC are the fallback, and they would have to be found on a
   boardview rather than in firmware.
-- Which of D+ / D- is the phone's transmit line.
 - Whether u-boot's stdio console is actually bound to the serial device on a
   retail `DEBUG_LEVEL=LO` unit, or only to the RAM log. `uart_init` runs
   either way, so the port will be configured; whether bytes come out of
