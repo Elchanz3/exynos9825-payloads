@@ -3651,3 +3651,50 @@ A charging screen means the REE slot was the whole problem, and the fix for
 `ecdsa_eng` is to sign the container with the same key that is in the TEE
 slot. A black screen puts it on the ST1 anchor itself, 226 bytes that the
 BootROM verifier has already accepted -- a much stranger place to be.
+
+### 2026-10-20: the screen oracle is invalid, and everything read off it falls
+
+`native-nohandoff` was run with stock on BOOTLOADER and stock on CM. The
+payload parks in an infinite loop where it would branch into the EPBL, so
+nothing entered the EPBL and nothing could reach u-boot.
+
+**The charging screen appeared anyway.**
+
+So a stall produces the screen by itself. The mechanism is the one that was
+raised and not taken seriously enough: the run stalls, the device resets, the
+BootROM cold-boots whatever is on UFS with the **fused** key, and the panel
+lights if that image verifies.
+
+Every conclusion drawn from this oracle is withdrawn:
+
+| run | what was concluded | what it actually showed |
+|---|---|---|
+| `native-triple-stock` | the handoff carries EPBL→u-boot | stock cold-boots |
+| `native-stockkey` | the redirect is clean on the UFS path | stock cold-boots |
+| `native-triple minimal` | the ST1 anchor fails on the UFS path | our image cannot cold-boot under Samsung's fused key |
+| `native-triple` (eng) | the resigned chain fails on the UFS path | same |
+
+EP1 is no help either: it died at 0.046 s in this run too, with the payload
+sitting in a loop, so its disappearance has nothing to do with the handoff.
+
+#### What is actually known about the UFS path
+
+Nothing. The instrumented handoff's outcome has never been observed. The
+screen reported a later cold boot in every case, and that cold boot used the
+fused key, which is why our images were black and Samsung's was not. Both
+outcomes were determined before the handoff was ever reached.
+
+So there is **no evidence that our chain fails to boot from UFS**, and none
+that it succeeds. The question is unmeasured, not answered. The earlier
+reading -- "the resigned ST2 stages are cleared", "the failure is the ST1
+identity" -- rested on this oracle and goes with it.
+
+#### Why that changes the fuse calculus
+
+Every black screen came from a cold boot verifying against Samsung's fused
+KEY. After `USE_KEY2` the BootROM consults our KEY2 instead, so that
+mechanism disappears: a cold boot would verify our image against our anchor.
+The thing that produced every failure was the absence of the fuse.
+
+That is an argument, not a demonstration. Activating would still be the first
+time our chain is known to have been given a fair attempt from UFS.
