@@ -1677,6 +1677,31 @@ epbl_verified:
 #else
     mov     x30, #0x250
 #endif
+#ifdef EPBL_UFS_NATIVE_NOHANDOFF
+    /*
+     * Park here instead of entering the EPBL, to find out what the screen
+     * does when no boot happens at all.
+     *
+     * Every "charging screen" result on the UFS path was read as proof that
+     * the instrumented handoff carried EPBL, FWBL1, BL2 and u-boot to
+     * completion, on the argument that a lit panel requires u-boot. The
+     * argument assumes what it is trying to show. A stall that ends in a
+     * reset would cold-boot the image on UFS, and with the stock image there
+     * that cold boot draws the same charging screen -- which makes the four
+     * rows of the table consistent with the handoff never working at all.
+     *
+     * Everything above this point has run, including the three records, so
+     * the only thing removed is the boot:
+     *
+     *   screen stays black for the whole watch  -> a stall does not produce
+     *       a screen by itself, so the charging screens came from the
+     *       handoff and the oracle stands
+     *   charging screen appears anyway          -> a stall produces one, and
+     *       every result read off that screen has to be re-examined
+     */
+nohandoff_park:
+    b       nohandoff_park
+#endif
     ldr     x16, =PROBE_EPBL_BRANCH
     br      x16
 #else

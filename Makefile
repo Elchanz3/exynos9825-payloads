@@ -17,7 +17,7 @@ PAYLOADS  := houston_marker dump_bootrom boot_nonsecure_probe \
 	epbl_dump_fwbl1_probe epbl_bypass_probe epbl_verify_diag_probe epbl_bootstate_probe epbl_sboot_noverify_probe \
 	epbl_minform_normal_probe epbl_android_boot_probe epbl_inform_dump_probe \
 	epbl_custom_key_hmac_probe epbl_custom_key_efuse_probe \
-	epbl_boot_ufs_probe epbl_key_state_probe epbl_boot_ufs_chain_probe epbl_boot_ufs_plain_probe epbl_boot_ufs_silent_probe epbl_boot_ufs_native_probe epbl_boot_ufs_native_load_diag_probe epbl_boot_ufs_native_postload_diag_probe epbl_boot_ufs_native_timing_diag_probe epbl_boot_ufs_native_flag_diag_probe epbl_boot_ufs_native_cold_diag_probe epbl_boot_ufs_native_force_cold_probe epbl_boot_ufs_native_diag_probe epbl_boot_ufs_native_triple_probe epbl_boot_ufs_native_keysafe_probe epbl_boot_ufs_native_stockkey_probe epbl_boot_ufs_native_triple_stock_probe epbl_boot_ufs_native_triple_restore_probe epbl_key_dump_probe \
+	epbl_boot_ufs_probe epbl_key_state_probe epbl_boot_ufs_chain_probe epbl_boot_ufs_plain_probe epbl_boot_ufs_silent_probe epbl_boot_ufs_native_probe epbl_boot_ufs_native_load_diag_probe epbl_boot_ufs_native_postload_diag_probe epbl_boot_ufs_native_timing_diag_probe epbl_boot_ufs_native_flag_diag_probe epbl_boot_ufs_native_cold_diag_probe epbl_boot_ufs_native_force_cold_probe epbl_boot_ufs_native_diag_probe epbl_boot_ufs_native_triple_probe epbl_boot_ufs_native_keysafe_probe epbl_boot_ufs_native_stockkey_probe epbl_boot_ufs_native_nohandoff_probe epbl_boot_ufs_native_triple_stock_probe epbl_boot_ufs_native_triple_restore_probe epbl_key_dump_probe \
 	epbl_pmu_trace_probe epbl_retention_mark_probe epbl_retention_read_probe \
 	ubstage_hello ubstage_download_marker \
 	epbl_fwbl1_boundary_staged_probe \
@@ -90,6 +90,7 @@ DISASMS    := $(PAYLOADS:%=$(BUILD_DIR)/%.disasm)
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_probe.o \
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_keysafe_probe.o \
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_stockkey_probe.o \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_nohandoff_probe.o \
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_stock_probe.o \
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_restore_probe.o \
 	$(BUILD_DIR)/payloads/epbl_android_boot_probe.o \
@@ -459,6 +460,17 @@ $(BUILD_DIR)/payloads/epbl_boot_ufs_native_stockkey_probe.o: \
 		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
 		-DEPBL_CUSTOM_KEY -DEPBL_CUSTOM_KEY_STOCKVALUE -c $< -o $@
 
+# The null control for the screen oracle: native-triple-stock with the
+# handoff removed. No EPBL is entered, so nothing can reach u-boot, and the
+# screen either stays black or proves it was never evidence of a boot.
+$(BUILD_DIR)/payloads/epbl_boot_ufs_native_nohandoff_probe.o: \
+	payloads/epbl_header_probe.S
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -DEPBL_UFS_NATIVE_HANDOFF \
+		-DEPBL_UFS_NATIVE_TRIPLE -DEPBL_DISABLE_ICACHE \
+		-DEPBL_BOOT_UFS_CHAIN -DEPBL_UFS_SILENT \
+		-DEPBL_UFS_NATIVE_NOHANDOFF -c $< -o $@
+
 $(BUILD_DIR)/payloads/epbl_boot_ufs_native_triple_stock_probe.o: \
 	payloads/epbl_header_probe.S
 	@mkdir -p $(@D)
@@ -767,6 +779,11 @@ $(BUILD_DIR)/epbl_boot_ufs_native_keysafe_probe.elf: \
 
 $(BUILD_DIR)/epbl_boot_ufs_native_stockkey_probe.elf: \
 	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_stockkey_probe.o \
+	arch/arm64/payload.ld
+	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
+
+$(BUILD_DIR)/epbl_boot_ufs_native_nohandoff_probe.elf: \
+	$(BUILD_DIR)/payloads/epbl_boot_ufs_native_nohandoff_probe.o \
 	arch/arm64/payload.ld
 	$(CC) $(LDFLAGS) $(filter %.o,$^) -o $@
 

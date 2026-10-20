@@ -36,6 +36,7 @@ KEYSAFE_PAYLOAD="$REPO/build/epbl_boot_ufs_native_keysafe_probe.bin"
 KEYSAFE_ELF="$REPO/build/epbl_boot_ufs_native_keysafe_probe.elf"
 STOCKKEY_PAYLOAD="$REPO/build/epbl_boot_ufs_native_stockkey_probe.bin"
 STOCKKEY_ELF="$REPO/build/epbl_boot_ufs_native_stockkey_probe.elf"
+NOHANDOFF_PAYLOAD="$REPO/build/epbl_boot_ufs_native_nohandoff_probe.bin"
 NATIVE_TRIPLE_STOCK_PAYLOAD="$REPO/build/epbl_boot_ufs_native_triple_stock_probe.bin"
 NATIVE_TRIPLE_STOCK_ELF="$REPO/build/epbl_boot_ufs_native_triple_stock_probe.elf"
 NATIVE_TRIPLE_RESTORE_PAYLOAD="$REPO/build/epbl_boot_ufs_native_triple_restore_probe.bin"
@@ -49,7 +50,7 @@ ACTION="${1:-}"
 
 usage() {
     cat >&2 <<EOF
-usage: $0 {build|check|flash|trigger|control-check|control-flash|control-trigger|silent-trigger|force-download-check|force-download-flash|force-download-trigger|native-check|native-trigger|native-load-diagnose|native-postload-diagnose|native-timing-diagnose|native-flag-diagnose|native-cold-diagnose|native-force-cold|native-triple|native-keysafe|native-stockkey|native-triple-stock|native-triple-restore|native-diagnose|trace|calibrate-retention}
+usage: $0 {build|check|flash|trigger|control-check|control-flash|control-trigger|silent-trigger|force-download-check|force-download-flash|force-download-trigger|native-check|native-trigger|native-load-diagnose|native-postload-diagnose|native-timing-diagnose|native-flag-diagnose|native-cold-diagnose|native-force-cold|native-triple|native-keysafe|native-stockkey|native-nohandoff|native-triple-stock|native-triple-restore|native-diagnose|trace|calibrate-retention}
 
   build    regenerate the signed entry-test chain from the stock image
   check    validate its replacement stage and every chain signature
@@ -1385,6 +1386,52 @@ did: black, Samsung logo, Download/Odin, USB RECOVERY prompt, or Android.
 A plain power-on afterwards boots the stock chain normally either way.
 EOF
         ;;
+    native-nohandoff)
+        # The null control for the screen oracle. Everything native-triple-stock
+        # does, minus the handoff: the payload parks in a loop instead of
+        # entering the EPBL, so nothing can reach u-boot. Needs the STOCK sboot
+        # and the STOCK cm.bin, to match the runs whose screens are in question.
+        make -C "$REPO" build/epbl_boot_ufs_native_nohandoff_probe.bin
+        cat <<EOF
+
+BOOTLOADER on UFS: stock.   CM partition: stock.
+Both must match the runs this is checking, or it answers nothing.
+
+RAM-only: no Odin step, no OTP command, no partition write.
+
+WATCH THE SCREEN FOR THE WHOLE 40 SECONDS, and note WHEN anything happens.
+
+  stays black throughout  -> a stall does not light the panel by itself, so
+      the charging screens came from the handoff and every UFS conclusion
+      drawn from them stands
+  charging screen appears -> a stall produces one anyway, and every result
+      read off that screen has to be re-examined, including "the redirect
+      is clean"
+
+== sudo authentication (before the 6.5 second EUB window) ==
+EOF
+        authenticate_sudo
+        rm -f /tmp/exynos9825_ubstage_nohandoff.bin
+        echo
+        echo "Wait for 'Waiting for EUB 04e8:1234...' before entering EUB."
+        echo
+        set +e
+        sudo "$HOUSTON/.venv/bin/python3" \
+            "$REPO/tools/boot_nonsecure_probe.py" \
+            --houston-dir "$HOUSTON" \
+            --payload "$NOHANDOFF_PAYLOAD" \
+            --listen-ep1 40 \
+            --output "/tmp/exynos9825_ubstage_nohandoff.bin"
+        probe_rc=$?
+        set -e
+        case "$probe_rc" in
+            0|130|143) ;;
+            *) echo "native-nohandoff exited with status $probe_rc; the screen is what matters." >&2 ;;
+        esac
+        echo
+        echo "Report whether the screen lit at all, and after how long."
+        ;;
+
     native-stockkey)
         # Requires the STOCK sboot on BOOTLOADER. The redirect machinery runs
         # in full, aimed at Samsung's own fused KEY value, so verification
