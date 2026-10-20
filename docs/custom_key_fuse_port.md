@@ -1333,3 +1333,52 @@ stock path back, not an unverifiable one.
 | `D` SEC0.3 = BAN_KEY2? | 0, unmeasured, now strongly indicated |
 | `E` SEC0.0 = USE_KEY | 1, untouched, the fallback is intact |
 | `F` SEC1.0, `G` SEC1.3 | 0, 0 |
+
+## 2026-10-20: Android boots, end to end
+
+With the partial BL tar flashed, the board boots Android. The chain of trust
+now runs entirely through keys we hold:
+
+```text
+BootROM
+  verifies ST1 against the fused KEY2            <- our anchor, 0x10003020
+sboot (ecdsa_eng)
+  its stages verified against our ST2-TEE        <- ours
+  cm.bin / LDFW verified against our ST2-TEE     <- ours, re-signed
+  keystorage.bin verified against our ST2-TEE    <- ours, re-signed
+  check_signature -> 0 for its thirteen callers
+AP / CP / CSC
+  Samsung's own images, unchanged
+Android
+```
+
+### The minimal set that must carry our signature
+
+Three files, and only three:
+
+| image | verified by | why |
+|---|---|---|
+| `sboot.bin` | the BootROM, against fused KEY2 | the root; nothing else is consulted |
+| `cm.bin` | the CM/LDFW initializer, against the ST2-TEE in our EPBL | an invalid LDFW is fatal to a normal boot |
+| `keystorage.bin` | the keystorage loader, same key | holds `PO_AVB_KEY`; without it AVB cannot validate vbmeta |
+
+Everything else passes because `check_signature` returns 0 for all thirteen
+of its callers, `check_samsung_secure_info` and `f_load_hypervisor` among
+them. `uh.bin` needed nothing, which the boot confirms. `boot.img`,
+`system.img`, `vendor.img` and the rest are AVB-protected, a separate
+mechanism with its own key, and stay internally consistent as Samsung
+shipped them.
+
+### What it cost to learn
+
+The partial-BL step was needed only because of advice given earlier in this
+session: that nothing outside BL needed re-signing, therefore BL could be
+skipped whole. The first half was right and the second did not follow --
+`keystorage.bin` is inside BL, and skipping it produced an AVB error that
+reads like a vbmeta fault and is not one.
+
+### Scope
+
+This is the **test board**. The spare is untouched and still stock. KEY2 and
+USE_KEY2 are one-way: this board accepts only images signed with
+`keys/4/st1.pem` + `keys/hmac.bin`, for the rest of its life.
