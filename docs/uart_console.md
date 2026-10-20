@@ -33,9 +33,27 @@ One Samsung-style UART, base **`0x10440000`**, with the usual register map:
 | `0x38` | UINTM | `0xf` = all interrupts masked (ROM) |
 
 Pin mux: the ROM does a read-modify-write on **`0x10430060`**, writing `0x33`
-into bits `[15:8]` -- two adjacent pins of that bank set to alternate
-function 3. u-boot does not touch it again, so the ROM's mux survives into
-the u-boot stage.
+into bits `[15:8]`. u-boot does not touch it again, so the ROM's mux survives
+into the u-boot stage.
+
+The kernel device tree confirms that write independently.
+`arch/arm64/boot/dts/exynos/exynos9820.dts` has `pinctrl@10430000` (so
+`0x10430060` is GPP3_CON -- 0x20 per bank, gpp0/1/2/3) and
+`uart@10440000`, whose `uart0-bus` node reads:
+
+```
+samsung,pins = "gpp3-2", "gpp3-3";
+samsung,pin-function = <0x3>;
+```
+
+Pins 2 and 3 of GPP3 occupy bits `[11:8]` and `[15:12]` of GPP3_CON, and
+function 3 in each nibble is exactly `0x33` written at bit 8. Two
+independent sources, the ROM's own store and Samsung's device tree, agree
+on the same two pads.
+
+That node is `status = "disabled"`, which is consistent with the rest: the
+production kernel does not use this port (`console=ram`), the bootloader
+does.
 
 ### Baud rate: 115200 in both stages
 
@@ -169,6 +187,35 @@ via the write/read pair at `0xc90235bc` / `0xc9023478`). The line just above
 the switch prints `"%s: jig_adc=%02x, cc_adc=%02x\n"` with both values --
 but that log only reaches the port *after* the switch has been thrown, so a
 wrong resistor is silent rather than self-diagnosing.
+
+## The jig is not the only way in: patch the branch
+
+The Black Hat author had to produce RID 5 because S-Boot was the thing they
+were attacking -- they could not change it. This project's position is the
+opposite. `board_ccic_check_uart` is a branch in an image we already
+rebuild, re-sign and flash:
+
+```
+c9003144:  cmp  w0, #0x5
+c9003148:  b.ne 0xc90030e0      <- neutralise this
+c900315c:  bl   0xc9023ce8      ; ifconn_com_to_uart(2)
+```
+
+Make the comparison always fall through and sboot throws the MUIC switch
+with no jig attached at all. The whole RID problem disappears for the
+u-boot-era console. It does nothing for the BootROM, which runs before any
+of our code.
+
+**This is dangerous in a specific way, and it must not be done yet.**
+`COM_UART` takes D+ and D- away from USB, and Download mode runs on those
+same two lines. An unconditional switch early in sboot removes Odin, which
+is the only flashing path available while EUB is down -- a one-way trip.
+
+The safe shape is the one this project already uses for everything else:
+flip the switch only on the specific path being investigated, late, after
+the download-mode decision, so a normal boot and a Download-mode boot both
+leave USB intact. Even then it waits until EUB is back, because the first
+attempt is exactly when the gating could be wrong.
 
 ## SWITCH_SEL and DEBUG_LEVEL
 
