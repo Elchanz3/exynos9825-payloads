@@ -34,6 +34,8 @@ NATIVE_TRIPLE_PAYLOAD="$REPO/build/epbl_boot_ufs_native_triple_probe.bin"
 NATIVE_TRIPLE_ELF="$REPO/build/epbl_boot_ufs_native_triple_probe.elf"
 KEYSAFE_PAYLOAD="$REPO/build/epbl_boot_ufs_native_keysafe_probe.bin"
 KEYSAFE_ELF="$REPO/build/epbl_boot_ufs_native_keysafe_probe.elf"
+STOCKKEY_PAYLOAD="$REPO/build/epbl_boot_ufs_native_stockkey_probe.bin"
+STOCKKEY_ELF="$REPO/build/epbl_boot_ufs_native_stockkey_probe.elf"
 NATIVE_TRIPLE_STOCK_PAYLOAD="$REPO/build/epbl_boot_ufs_native_triple_stock_probe.bin"
 NATIVE_TRIPLE_STOCK_ELF="$REPO/build/epbl_boot_ufs_native_triple_stock_probe.elf"
 NATIVE_TRIPLE_RESTORE_PAYLOAD="$REPO/build/epbl_boot_ufs_native_triple_restore_probe.bin"
@@ -47,7 +49,7 @@ ACTION="${1:-}"
 
 usage() {
     cat >&2 <<EOF
-usage: $0 {build|check|flash|trigger|control-check|control-flash|control-trigger|silent-trigger|force-download-check|force-download-flash|force-download-trigger|native-check|native-trigger|native-load-diagnose|native-postload-diagnose|native-timing-diagnose|native-flag-diagnose|native-cold-diagnose|native-force-cold|native-triple|native-keysafe|native-triple-stock|native-triple-restore|native-diagnose|trace|calibrate-retention}
+usage: $0 {build|check|flash|trigger|control-check|control-flash|control-trigger|silent-trigger|force-download-check|force-download-flash|force-download-trigger|native-check|native-trigger|native-load-diagnose|native-postload-diagnose|native-timing-diagnose|native-flag-diagnose|native-cold-diagnose|native-force-cold|native-triple|native-keysafe|native-stockkey|native-triple-stock|native-triple-restore|native-diagnose|trace|calibrate-retention}
 
   build    regenerate the signed entry-test chain from the stock image
   check    validate its replacement stage and every chain signature
@@ -1383,6 +1385,54 @@ did: black, Samsung logo, Download/Odin, USB RECOVERY prompt, or Android.
 A plain power-on afterwards boots the stock chain normally either way.
 EOF
         ;;
+    native-stockkey)
+        # Requires the STOCK sboot on BOOTLOADER. The redirect machinery runs
+        # in full, aimed at Samsung's own fused KEY value, so verification
+        # passes for the same reason it does on a stock boot. Against the one
+        # row that boots, the only remaining difference is where
+        # PTR_SECUREBOOT_KEY points.
+        make -C "$REPO" build/epbl_boot_ufs_native_stockkey_probe.bin
+        python3 - "$STOCK_SBOOT" "$STOCK_EPBL" <<'PY'
+import sys, pathlib
+src, dst = sys.argv[1], sys.argv[2]
+pathlib.Path(dst).parent.mkdir(parents=True, exist_ok=True)
+pathlib.Path(dst).write_bytes(pathlib.Path(src).read_bytes()[:0x3000])
+PY
+        python3 "$REPO/tools/check_native_ufs_payload.py" --triple-records \
+            "$STOCKKEY_ELF" "$STOCKKEY_PAYLOAD" "$STOCK_EPBL"
+        cat <<EOF
+
+BOOTLOADER image expected on UFS:
+  $STOCK_SBOOT     <-- STOCK, not a resigned chain
+
+RAM-only: no Odin step and no OTP command. The screen is the oracle. A boot
+clears the redirect and puts the failure in our ST1 identity; a black screen
+says the redirect itself breaks the UFS path.
+
+== sudo authentication (before the 6.5 second EUB window) ==
+EOF
+        authenticate_sudo
+        rm -f /tmp/exynos9825_ubstage_native_stockkey.bin
+        echo
+        echo "Wait for 'Waiting for EUB 04e8:1234...' before entering EUB."
+        echo
+        set +e
+        sudo "$HOUSTON/.venv/bin/python3" \
+            "$REPO/tools/boot_nonsecure_probe.py" \
+            --houston-dir "$HOUSTON" \
+            --payload "$STOCKKEY_PAYLOAD" \
+            --listen-ep1 25 \
+            --output "/tmp/exynos9825_ubstage_native_stockkey.bin"
+        probe_rc=$?
+        set -e
+        case "$probe_rc" in
+            0|130|143) ;;
+            *) echo "native-stockkey exited with status $probe_rc; the screen is what matters." >&2 ;;
+        esac
+        echo
+        echo "Report what the SCREEN did. Records carry no information here."
+        ;;
+
     native-keysafe)
         # native-triple with one variable changed: the 32 key bytes the BootROM
         # verifier dereferences are copied to PROBE_CUSTOM_KEY_LOW (0x02021800)

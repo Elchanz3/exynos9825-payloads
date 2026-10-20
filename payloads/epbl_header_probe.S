@@ -3142,7 +3142,26 @@ boot_ufs_emit:
 .balign 8
 .globl custom_boot_key
 custom_boot_key:
-#if defined(EPBL_CUSTOM_KEY_EFUSE)
+#if defined(EPBL_CUSTOM_KEY_STOCKVALUE)
+    /*
+     * Samsung's OWN fused KEY slot, read off this device's 0x10003000 and
+     * recorded in docs/custom_key_fuse_port.md. Not ours, and not a key we
+     * can sign with -- it exists so the redirect machinery can be exercised
+     * against the STOCK image on UFS. Verification then passes for the same
+     * reason it passes on a stock boot, and the only thing left different
+     * from a stock boot is that PTR_SECUREBOOT_KEY aims at our iRAM copy
+     * instead of at the fuse slot. That is the control that separates the
+     * redirect from the image, and nothing else can: a stock image with our
+     * key, or our image without the redirect, are both rejected for trivial
+     * reasons.
+     *
+     * b444be33c467c9e58ef54d6067641a6ea2fb9d61e2d30ee219d1ad3b79425f0c
+     */
+    .byte 0xb4, 0x44, 0xbe, 0x33, 0xc4, 0x67, 0xc9, 0xe5
+    .byte 0x8e, 0xf5, 0x4d, 0x60, 0x67, 0x64, 0x1a, 0x6e
+    .byte 0xa2, 0xfb, 0x9d, 0x61, 0xe2, 0xd3, 0x0e, 0xe2
+    .byte 0x19, 0xd1, 0xad, 0x3b, 0x79, 0x42, 0x5f, 0x0c
+#elif defined(EPBL_CUSTOM_KEY_EFUSE)
     /* 1d12d364cf441dfe7d5084a054691cf1c7f71e068e2470881e52ce280c7c330b */
     .byte 0x1d, 0x12, 0xd3, 0x64, 0xcf, 0x44, 0x1d, 0xfe
     .byte 0x7d, 0x50, 0x84, 0xa0, 0x54, 0x69, 0x1c, 0xf1

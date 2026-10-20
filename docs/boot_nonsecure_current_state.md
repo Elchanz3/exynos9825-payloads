@@ -3545,3 +3545,51 @@ EPBL goes on to load and verify FWBL1 and BL2 from UFS itself, and if the UFS
 path reuses `0x02025000`, every verification after our last observation point
 reads a clobbered key and fails. That would be black with a verifier that
 already said 1, and it would not happen on the USB path. Unmeasured.
+
+### 2026-10-20: moving the key did not help, so the clobber idea is closed
+
+`native-keysafe minimal` ran against the same `minimal/sboot.bin` on
+BOOTLOADER, with the 32 key bytes copied to `0x02021800` and
+`PTR_SECUREBOOT_KEY` aimed there instead of at `custom_boot_key` inside the
+relocated worker at `0x02025000`. **Black screen.**
+
+So the bytes the verifier dereferences were not being overwritten where they
+used to live, and the hypothesis is closed. In hindsight the static evidence
+was already against it: `0x02025000` is the gap the payload author picked
+precisely because the EPBL image ends there and FWBL1 starts at
+`0x02026000`.
+
+### What is still standing, and the control that was never run
+
+Eliminated so far: the resigned ST2 stages, and the address of the key.
+Still standing, inside the image: the ST1 identity (`st1_publickey`, `hmac`,
+`signature`, checksum) and `st2_key_ree` with the footer re-signed under it.
+Still standing, outside it: the redirect.
+
+The redirect has never been testable because it is entangled with the image
+-- a stock image with our key is rejected, and our image without the redirect
+is rejected, both for trivial reasons. There is one configuration that breaks
+the entanglement and it has not been tried:
+
+**stock `sboot.bin` on UFS, redirect machinery fully active, pointed at
+Samsung's own fused KEY value** (`b444be33...`, read off this device's
+`0x10003000` and recorded above). Verification then passes for exactly the
+reason it passes on a stock boot, and against the one row that boots the only
+difference left is that `PTR_SECUREBOOT_KEY` aims at our iRAM copy instead of
+at the fuse slot.
+
+| image on UFS | pointer aims at | expected to verify | screen |
+|---|---|:-:|---|
+| stock | fuse slot (no redirect) | yes | charging screen |
+| `minimal` / `ecdsa_eng` | our key in iRAM | yes (verifier returned 1) | black |
+| stock | **Samsung's value in iRAM** | yes | **unmeasured** |
+
+A boot on that third row clears the redirect and puts the failure squarely in
+our ST1 identity. A black screen says the redirect itself breaks the UFS path
+and the image was never the variable -- which would mean the chain cannot be
+tested on UFS at all before the fuse is burned, and that is worth knowing
+before anything irreversible.
+
+Built as `epbl_boot_ufs_native_stockkey_probe`, run with
+`tools/run_ubstage_test.sh native-stockkey`. It needs the stock sboot back on
+BOOTLOADER, which also returns the board to a state that boots on its own.
