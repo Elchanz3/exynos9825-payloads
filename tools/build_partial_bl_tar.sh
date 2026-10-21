@@ -41,6 +41,11 @@ SRC_BL="$(ls "$FW"/BL_*.tar.md5)"
 MODE="${MODE:-partial}"
 OUR_SBOOT="${OUR_SBOOT:-/home/chanz22/EUB-N10/9825_customkey/ecdsa_eng/sboot.bin}"
 OUR_CM="${OUR_CM:-$REPO/build/custom_cm/cm.bin}"
+# Set both when AVB has been re-rooted on our key: the keystorage carries our
+# AVB public key and the vbmeta is signed with the matching private one, so
+# they only make sense together.
+OUR_KEYSTORAGE="${OUR_KEYSTORAGE:-}"
+OUR_VBMETA="${OUR_VBMETA:-}"
 
 case "$MODE" in
     partial)
@@ -65,6 +70,20 @@ echo "== extracting =="
 tar xf "$SRC_BL" -C "$WORK/stage"
 ( cd "$WORK/stage" && ls -1 )
 
+if [[ -n "$OUR_KEYSTORAGE" || -n "$OUR_VBMETA" ]]; then
+    [[ -n "$OUR_KEYSTORAGE" && -n "$OUR_VBMETA" ]] || {
+        echo "error: OUR_KEYSTORAGE and OUR_VBMETA go together or not at all" >&2
+        exit 1; }
+    echo
+    echo "== using the AVB-rerooted pair =="
+    for pair in "$OUR_KEYSTORAGE:keystorage.bin" "$OUR_VBMETA:vbmeta.img"; do
+        src="${pair%%:*}"; name="${pair##*:}"
+        [[ -f "$src" ]] || { echo "error: missing $src" >&2; exit 1; }
+        lz4 -9 -f --content-size -B6 "$src" "$WORK/stage/$name.lz4" >/dev/null
+        echo "  $name  <- $src"
+    done
+else
+
 echo
 echo "== re-signing keystorage.bin with our ST2-TEE key =="
 lz4 -d -f "$WORK/stage/keystorage.bin.lz4" "$WORK/keystorage.stock.bin" >/dev/null
@@ -74,6 +93,7 @@ python3 "$REPO/tools/resign_st2_container.py" \
 lz4 -9 -f --content-size -B6 "$WORK/keystorage.bin" "$WORK/stage/keystorage.bin.lz4" >/dev/null
 echo "  frame header stock  : $(xxd -p -l 7 "$WORK/keystorage.stock.lz4" 2>/dev/null || xxd -p -l 7 <(tar xOf "$SRC_BL" keystorage.bin.lz4))"
 echo "  frame header ours   : $(xxd -p -l 7 "$WORK/stage/keystorage.bin.lz4")"
+fi
 
 if [[ "$MODE" == full ]]; then
     echo

@@ -66,6 +66,10 @@ def main():
     ap.add_argument("stock", help="the Samsung-signed image")
     ap.add_argument("out", help="where to write the re-signed copy")
     ap.add_argument("--keys", default="/home/chanz22/EUB-N10/9825_customkey/keys")
+    ap.add_argument("--proof", help="the UNMODIFIED image to prove the stock "
+                    "signature against, when `stock` has already been edited; "
+                    "the proof is what shows the offset and digest rule are "
+                    "Samsung's, so it is required either way")
     ap.add_argument("--stock-sboot",
                     default="/home/chanz22/EUB-N10/9825_customkey/input/sboot.bin")
     args = ap.parse_args()
@@ -91,11 +95,19 @@ def main():
     # Proving the stock signature first is what makes the re-sign safe: it
     # shows the offset and the digest rule are the ones Samsung used, rather
     # than a pattern that merely looked right.
+    proof_src = Path(args.proof) if args.proof else Path(args.stock)
+    proof_data = proof_src.read_bytes()
+    if len(proof_data) != len(data):
+        raise SystemExit(f"--proof is {len(proof_data)} bytes, input is {len(data)}")
+    proof_digest = hashlib.sha512(proof_data[:signed_end]).digest()
+    proof_sig = proof_data[signed_end:signed_end + SIG_LEN]
+    if not _mk.verify_p384(stock_tee, proof_digest, proof_sig):
+        raise SystemExit(f"stock signature in {proof_src} does not verify "
+                         "-- wrong offset or rule")
+    print(f"  stock signature vs Samsung ST2-TEE : PASS"
+          + (f"  (proved on {proof_src.name})" if args.proof else ""))
+
     before = hashlib.sha512(bytes(data[:signed_end])).digest()
-    sig = bytes(data[signed_end:signed_end + SIG_LEN])
-    if not _mk.verify_p384(stock_tee, before, sig):
-        raise SystemExit("stock signature does not verify -- wrong offset or rule")
-    print("  stock signature vs Samsung ST2-TEE : PASS")
 
     data[signed_end:signed_end + SIG_LEN] = _mk.sign_p384(st2t, before)
 
@@ -109,6 +121,13 @@ def main():
     changed = sum(1 for a, b in zip(stock, data) if a != b)
     outside = sum(1 for i, (a, b) in enumerate(zip(stock, data))
                   if a != b and not (signed_end <= i < signed_end + SIG_LEN))
+    if args.proof:
+        # The caller edited the body on purpose; report what they changed
+        # relative to the untouched original instead of pretending it is zero.
+        body = sum(1 for i, (a, b) in enumerate(zip(proof_data, data))
+                   if a != b and i < signed_end)
+        print(f"  body bytes changed vs {proof_src.name}: {body}")
+        outside = 0
     print(f"  bytes changed {changed}, all inside the signature: "
           f"{'yes' if outside == 0 else f'NO ({outside} outside)'}")
 
