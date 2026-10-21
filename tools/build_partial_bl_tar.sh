@@ -28,7 +28,9 @@ set -euo pipefail
 
 REPO="/home/chanz22/Documents/GitHub/exynos9825-payloads"
 FW="${FW:-/home/chanz22/Documents/SAMFW.COM_SM-N975F_ZTO_N975FXXS9HWG3_fac}"
-WORK="$REPO/build/partial_bl"
+# The staging area is wiped at every run, so it must not be the directory the
+# output lands in -- building a second tar used to delete the first one.
+WORK="$REPO/build/partial_bl/.stage"
 OUT="${1:-$REPO/build/partial_bl/BL_custom_keystorage.tar.md5}"
 
 SRC_BL="$(ls "$FW"/BL_*.tar.md5)"
@@ -61,7 +63,12 @@ esac
 
 command -v lz4 >/dev/null || { echo "error: lz4 is not installed" >&2; exit 1; }
 
-rm -rf "$WORK"; mkdir -p "$WORK/stage"
+case "$(readlink -m "$OUT")" in
+    "$(readlink -m "$WORK")"/*)
+        echo "error: the output cannot live inside the staging area" >&2
+        exit 1 ;;
+esac
+rm -rf "$WORK"; mkdir -p "$WORK/stage" "$(dirname "$OUT")"
 echo "== source =="
 echo "  $SRC_BL"
 
