@@ -1068,6 +1068,42 @@ class Patcher:
         self._write(self.DEVICE_STATE_SITE, struct.pack("<I", self.NOP),
                     "vbmeta.device_state -> always locked")
 
+    # The AVB per-partition hash check, at the branch that decides it.
+    #   0x98304  cbz w0, +0x2dc   after the digest compare
+    #            taken when they match; falls through to
+    #            "Hash of data does not match digest in descriptor.[2nd]"
+    AVB_HASH_SITE = 0x98304
+    AVB_HASH_CBZ = 0x340016E0       # cbz w0, 0x985e0
+    AVB_HASH_BRANCH = 0x140000B7    # b   0x985e0
+
+    def patch_relax_avb_hash(self):
+        """Accept every AVB hash descriptor. A deliberate weakening.
+
+        After this a partition whose content does not match vbmeta boots
+        anyway. It is here because a looping board cannot say which
+        partition it is unhappy about, and each guess from the outside costs
+        a flash cycle; with the board up, the same question is a read of
+        `ro.boot.vbmeta.*` and a hash taken on the host.
+
+        Prefer tools/check_avb_descriptors.py first -- it answers the same
+        question offline, with nothing switched off.
+
+        Narrow on purpose. The comparison is left alone (0xc9099a30 is a
+        shared memcmp with nine callers) and only this branch moves, so
+        vbmeta's own signature, the ST2 checks on sboot, cm and keystorage,
+        and the BootROM's check of our anchor all still run. What stops is
+        "does this partition match what vbmeta says".
+
+        Rebuild without the flag to put it back.
+        """
+        if u32(self.data, self.AVB_HASH_SITE) != self.AVB_HASH_CBZ:
+            raise KeyError(
+                f"AVB hash site {self.AVB_HASH_SITE:#x} holds "
+                f"{u32(self.data, self.AVB_HASH_SITE):#010x}, "
+                f"expected {self.AVB_HASH_CBZ:#010x}")
+        self._write(self.AVB_HASH_SITE, struct.pack("<I", self.AVB_HASH_BRANCH),
+                    "AVB hash descriptors -> always accepted")
+
     def patch_check_signature(self):
         self.stub_function_at_string(
             "There is no signature\n", RETURN_ZERO, "check_signature->0", 0x200)
@@ -1090,6 +1126,10 @@ def main(argv=None):
     ap.add_argument("--out")
     ap.add_argument("--all", action="store_true",
                     help="also relax signature / warranty / RPMB checks")
+    ap.add_argument("--relax-avb-hash", action="store_true",
+                    help="accept every AVB hash descriptor; a deliberate "
+                         "weakening, for getting a looping board up. Try "
+                         "tools/check_avb_descriptors.py first")
     ap.add_argument("--force-green", action="store_true",
                     help="tell the kernel verifiedbootstate=green and "
                          "vbmeta.device_state=locked whatever the real unlock "
@@ -1189,6 +1229,8 @@ def main(argv=None):
         p.patch_probe_ldfw_result()
     if args.clear_boot_magic:
         p.patch_clear_boot_magic()
+    if args.relax_avb_hash:
+        p.patch_relax_avb_hash()
     if args.force_green:
         p.patch_force_green()
     if args.key2_post_ldfw:
