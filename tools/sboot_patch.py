@@ -1013,6 +1013,61 @@ class Patcher:
             "KEY2 program on the LDFW success path only",
         )
 
+    # The two places that decide what the kernel is told about the lock.
+    #   0xa849c  cbz w0, +0x1c4   after `bl get_oem_unlock_val`
+    #            taken when locked -> "green"; falls through to "orange"
+    #   0x9cdb4  cbnz w0, +0x84   on libavb's is-unlocked flag
+    #            taken when unlocked -> "unlocked"; falls through to "locked"
+    GREEN_SITE = 0xA849C
+    GREEN_CBZ = 0x34000E20          # cbz w0, 0xa8660
+    GREEN_BRANCH = 0x14000071       # b   0xa8660
+    DEVICE_STATE_SITE = 0x9CDB4
+    DEVICE_STATE_CBNZ = 0x35000420  # cbnz w0, 0x9ce38
+    NOP = 0xD503201F
+
+    def patch_force_green(self):
+        """Report verifiedbootstate=green and device_state=locked regardless.
+
+        `get_oem_unlock_val` reads the real persistent unlock value and
+        fifteen call sites consult it, several of them about whether a flash
+        is permitted. Only two of those decide what the kernel is told, so
+        only those two are touched; the rest keep their honest answer.
+
+        This changes two strings on the kernel command line and nothing else.
+        It does not relax a single AVB check: the hash descriptors are still
+        verified, and a digest that does not match still stops the boot. If
+        the device is looping, this will not be why it stops looping.
+
+        The call target is checked by its own first three instructions
+        rather than by address, so an image where `get_oem_unlock_val` moved
+        is refused rather than patched in the wrong place. Its __func__
+        string cannot be used for this: those pointers are built with a
+        second `add`, which find_single_xref does not follow.
+        """
+        if not is_bl(self.data, self.GREEN_SITE - 4):
+            raise KeyError(f"{self.GREEN_SITE - 4:#x} is not a call")
+        unlock_fn = bl_target(self.data, self.GREEN_SITE - 4)
+        signature = (0xD10843FF,  # sub sp, sp, #0x210
+                     0x52800021,  # mov w1, #1
+                     0xA9BD7BFD)  # stp x29, x30, [sp, #-48]!
+        actual = tuple(u32(self.data, unlock_fn + i * 4) for i in range(3))
+        if actual != signature:
+            raise KeyError(
+                f"the call at {self.GREEN_SITE - 4:#x} goes to {unlock_fn:#x}, "
+                f"which does not look like get_oem_unlock_val: "
+                + ", ".join(f"{w:#010x}" for w in actual))
+        for site, expect, name in (
+                (self.GREEN_SITE, self.GREEN_CBZ, "verifiedbootstate"),
+                (self.DEVICE_STATE_SITE, self.DEVICE_STATE_CBNZ, "device_state")):
+            if u32(self.data, site) != expect:
+                raise KeyError(
+                    f"{name} site {site:#x} holds {u32(self.data, site):#010x}, "
+                    f"expected {expect:#010x}")
+        self._write(self.GREEN_SITE, struct.pack("<I", self.GREEN_BRANCH),
+                    "verifiedbootstate -> always green")
+        self._write(self.DEVICE_STATE_SITE, struct.pack("<I", self.NOP),
+                    "vbmeta.device_state -> always locked")
+
     def patch_check_signature(self):
         self.stub_function_at_string(
             "There is no signature\n", RETURN_ZERO, "check_signature->0", 0x200)
@@ -1035,6 +1090,10 @@ def main(argv=None):
     ap.add_argument("--out")
     ap.add_argument("--all", action="store_true",
                     help="also relax signature / warranty / RPMB checks")
+    ap.add_argument("--force-green", action="store_true",
+                    help="tell the kernel verifiedbootstate=green and "
+                         "vbmeta.device_state=locked whatever the real unlock "
+                         "value is; changes no AVB check")
     boot_path = ap.add_mutually_exclusive_group()
     boot_path.add_argument("--normal-boot", action="store_true",
                            help="force the Download-vs-normal-boot fork to normal boot")
@@ -1130,6 +1189,8 @@ def main(argv=None):
         p.patch_probe_ldfw_result()
     if args.clear_boot_magic:
         p.patch_clear_boot_magic()
+    if args.force_green:
+        p.patch_force_green()
     if args.key2_post_ldfw:
         p.patch_key2_after_ldfw()
     if args.diag_secure_payload:
