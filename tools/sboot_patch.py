@@ -99,6 +99,12 @@ def function_start_or_block(data, inside):
     return inside
 
 
+def u32_of(value):
+    # encode_b / encode_bl return a plain word; this keeps struct.pack honest
+    # if one of them is ever changed to hand back bytes instead.
+    return value if isinstance(value, int) else int.from_bytes(value, "little")
+
+
 def encode_b(site, target):
     delta = target - site
     if delta & 3:
@@ -1142,6 +1148,63 @@ class Patcher:
         self.stub_function_at_string(
             "[EFUSE] Set warranty bit(%d)\n", RETURN_ZERO, "set_warranty_bit->0", 0x200)
 
+    def patch_boot_info_screen(self):
+        """Show the hardware screen Samsung compiled in and never calls.
+
+        `0xc9002928` prints EVT, ECT, LOT_ID, CHIP_ID, the PMIC trim, the
+        LPDDR4 vendor, process and size, CARRIER_ID, the UFS vendor and
+        firmware revision, and the warranty bit -- a dozen green lines, drawn
+        with the same panel printf the Odin screen uses. Nothing reaches it:
+        it is stored into a handler slot at `0xc92511e8` whose trigger never
+        fires in a shipped build.
+
+        So it is called directly, from the normal boot path, immediately
+        after drawLOGO has brought the panel up. It cannot go any earlier --
+        before that there is nothing to draw on, which is also why the
+        stages before u-boot can never appear here.
+
+        The hook replaces one `bl` with a `bl` to a stub, and the stub ends
+        by branching to the call that was displaced, so the displaced
+        function still runs and still returns to the right place. It takes
+        no arguments and neither does the info screen, so nothing in flight
+        is clobbered -- which is the reason this particular call was chosen
+        over its neighbours.
+        """
+        HOOK = 0x3760          # bl 0x60e98, right after `bl drawLOGO`
+        INFO = 0x2928          # the info screen, void f(void)
+        CONT = 0x60e98         # the call the hook displaces, also void f(void)
+        GAP, GAP_END = 0x12100, 0x12800
+
+        if u32(self.data, HOOK) != encode_bl(HOOK, CONT):
+            raise KeyError(f"{HOOK:#x} is not the expected `bl {CONT:#x}`")
+        if u32(self.data, INFO) != 0xD10243FF:        # sub sp,sp,#0x90
+            raise KeyError(f"{INFO:#x} does not open with the expected prologue")
+        if u32(self.data, CONT) != 0xA9BA7BFD:        # stp x29,x30,[sp,#-96]!
+            raise KeyError(f"{CONT:#x} does not open with the expected prologue")
+
+        # The stub goes in linker padding: 1792 bytes of NOP inside .text
+        # that no branch, no adrp/add pair and no stored pointer reaches.
+        # Both halves of that are checked here rather than trusted, because
+        # a later build could lay the section out differently.
+        if any(u32(self.data, o) != 0xD503201F
+               for o in range(GAP, GAP_END, 4)):
+            raise KeyError(f"{GAP:#x}..{GAP_END:#x} is not all NOP any more")
+        if any(GAP <= t < GAP_END for t in call_targets(self.data)):
+            raise KeyError("something is called inside the padding")
+        for off in range(0, len(self.data) - 32, 4):
+            if any(GAP <= v < GAP_END for v in adrp_pointer_values(self.data, off)):
+                raise KeyError(f"{off:#x} forms a pointer into the padding")
+
+        stub = struct.pack("<5I",
+                           0xA9BF7BFD,                 # stp x29,x30,[sp,#-16]!
+                           0x910003FD,                 # mov x29, sp
+                           u32_of(encode_bl(GAP + 8, INFO)),
+                           0xA8C17BFD,                 # ldp x29,x30,[sp],#16
+                           u32_of(encode_b(GAP + 16, CONT)))
+        self._write(GAP, stub, "boot info screen stub")
+        self._write(HOOK, struct.pack("<I", encode_bl(HOOK, GAP)),
+                    "call the info screen")
+
     def patch_rpmb(self):
         for tag in ("[KG] read_data fail...\n", "[RLC] read_data fail...\n"):
             try:
@@ -1160,6 +1223,12 @@ def main(argv=None):
                     help="accept every AVB hash descriptor; a deliberate "
                          "weakening, for getting a looping board up. Try "
                          "tools/check_avb_descriptors.py first")
+    ap.add_argument("--boot-info-screen", action="store_true",
+                    help="draw Samsung's own hardware info screen during a "
+                         "normal boot: EVT, ECT, LOT_ID, CHIP_ID, PMIC trim, "
+                         "LPDDR4 vendor/process/size, CARRIER_ID, UFS vendor "
+                         "and firmware revision, and the warranty bit. The "
+                         "code is already in the image and unreachable")
     ap.add_argument("--secure-download-label", action="store_true",
                     help="relabel the Odin screen's Secure Download line as "
                          "Disabled; a label only, and already true")
@@ -1264,6 +1333,8 @@ def main(argv=None):
         p.patch_clear_boot_magic()
     if args.relax_avb_hash:
         p.patch_relax_avb_hash()
+    if args.boot_info_screen:
+        p.patch_boot_info_screen()
     if args.secure_download_label:
         p.patch_secure_download_label()
     if args.force_green:
