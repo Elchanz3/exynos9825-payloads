@@ -1036,10 +1036,32 @@ class Patcher:
 
         `get_oem_unlock_val` reads the real persistent unlock value and
         fifteen call sites consult it, several of them about whether a flash
-        is permitted. Only two of those decide what the kernel is told, so
+        is permitted. Only two of those decide the reported boot state, so
         only those two are touched; the rest keep their honest answer.
 
-        This changes two strings on the kernel command line and nothing else.
+        The two sites are NOT equivalent, and one of them reaches further
+        than "the kernel command line" -- a claim an earlier version of this
+        comment made and which is wrong:
+
+          * GREEN_SITE (0xa849c) lives inside the function at 0xc90a8458,
+            the one that pushes the boot state into the CryptoManager over
+            SMC 0xc200101d (set_os_version / set_device_state /
+            set_boot_state). It gates a strcpy that leaves a state buffer
+            holding "orange" (unlocked) or "green" (locked); the device_state
+            and boot_state values handed to the secure world are then decided
+            by strcmp against "green". Forcing the branch makes that buffer
+            always "green", so the CryptoManager is told locked+green too,
+            not only the kernel. See docs 13 in the reverse-eng tree.
+          * DEVICE_STATE_SITE (0x9cdb4) is in a different function
+            (0xc909cc98) that calls no CM wrapper: command-line only.
+
+        What this does NOT establish is what the CryptoManager *does* with the
+        value. The CM runs from an encrypted LDFW inside the SSS; whether it
+        trusts u-boot's word or re-derives the state is not visible here, and
+        a remote verifier's attestation is signed by a TEE key we do not hold
+        and would carry the hash of OUR key. Telling the secure world "green"
+        is necessary for an honest-looking attestation, not sufficient for one.
+
         It does not relax a single AVB check: the hash descriptors are still
         verified, and a digest that does not match still stops the boot. If
         the device is looping, this will not be why it stops looping.
