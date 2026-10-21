@@ -1104,6 +1104,36 @@ class Patcher:
         self._write(self.AVB_HASH_SITE, struct.pack("<I", self.AVB_HASH_BRANCH),
                     "AVB hash descriptors -> always accepted")
 
+    def patch_secure_download_label(self):
+        """Relabel the Odin screen's "Secure Download" line as Disabled.
+
+        It is a label and nothing else. Of the four status lines on that
+        screen, CURRENT BINARY, FRP LOCK and OEM LOCK each have two strings
+        and a branch choosing between them; this one has a single string
+        loaded unconditionally, so it reads no state and gates nothing.
+
+        What it is nominally about -- refusing an image Samsung did not
+        sign -- is enforced by check_signature, which this build already
+        makes return zero for all thirteen of its callers. So the screen has
+        been claiming the opposite of the truth since the first eng build,
+        and this makes it honest rather than changing behaviour.
+
+        The replacement is one byte longer and lands in the six bytes of
+        padding that follow the original's NUL.
+        """
+        old = b"Secure Download : Enabled\x00"
+        new = b"Secure Download : Disabled\x00"
+        at = self.data.find(old)
+        if at < 0 or self.data.find(old, at + 1) >= 0:
+            raise KeyError("expected exactly one 'Secure Download : Enabled'")
+        room = len(old)
+        while self.data[at + room] == 0:
+            room += 1
+        if room < len(new):
+            raise KeyError(f"only {room} bytes at {at:#x}, need {len(new)}")
+        self._write(at, new.ljust(room, b"\x00"),
+                    "Odin screen: Secure Download -> Disabled")
+
     def patch_check_signature(self):
         self.stub_function_at_string(
             "There is no signature\n", RETURN_ZERO, "check_signature->0", 0x200)
@@ -1130,6 +1160,9 @@ def main(argv=None):
                     help="accept every AVB hash descriptor; a deliberate "
                          "weakening, for getting a looping board up. Try "
                          "tools/check_avb_descriptors.py first")
+    ap.add_argument("--secure-download-label", action="store_true",
+                    help="relabel the Odin screen's Secure Download line as "
+                         "Disabled; a label only, and already true")
     ap.add_argument("--force-green", action="store_true",
                     help="tell the kernel verifiedbootstate=green and "
                          "vbmeta.device_state=locked whatever the real unlock "
@@ -1231,6 +1264,8 @@ def main(argv=None):
         p.patch_clear_boot_magic()
     if args.relax_avb_hash:
         p.patch_relax_avb_hash()
+    if args.secure_download_label:
+        p.patch_secure_download_label()
     if args.force_green:
         p.patch_force_green()
     if args.key2_post_ldfw:
