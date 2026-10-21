@@ -87,7 +87,15 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--vbmeta", required=True, help="Samsung's stock vbmeta.img")
     ap.add_argument("--keystorage", required=True, help="Samsung's stock keystorage.bin")
-    ap.add_argument("--sboot", required=True, help="OUR sboot.bin, the one that will be flashed")
+    ap.add_argument("--stock-image", action="append", default=[], metavar="PART=FILE",
+                    help="Samsung's own image for PART; the tool checks it "
+                         "hashes to the digest already in the descriptor, "
+                         "which proves the rule for that descriptor before "
+                         "anything is replaced")
+    ap.add_argument("--image", action="append", default=[], metavar="PART=FILE",
+                    help="replace the hash descriptor for PART with the digest "
+                         "of FILE; repeatable. The keystorage entry is added "
+                         "automatically once it has been re-signed.")
     ap.add_argument("--avb-key", default="/home/chanz22/EUB-N10/9825_customkey/keys/4/avb.pem")
     ap.add_argument("--keys", default="/home/chanz22/EUB-N10/9825_customkey/keys")
     ap.add_argument("--out-dir", default="build/custom_avb")
@@ -128,33 +136,96 @@ def main():
     print("  stock hash rule reproduces Samsung's hash : PASS")
     print("  stock signature verifies under stock key  : PASS")
 
-    # AvbHashDescriptor: 132 bytes of header, then name, salt, digest.
-    # Everything that matters is read out of it rather than assumed, so a
-    # different firmware's vbmeta cannot be silently mis-patched.
-    name_off = vb.find(b"bootloader")
-    if name_off < 0 or vb.count(b"bootloader") != 1:
-        raise SystemExit("expected exactly one 'bootloader' descriptor")
-    desc = name_off - 132
-    tag, _following = struct.unpack_from(">QQ", vb, desc)
-    image_size = struct.unpack_from(">Q", vb, desc + 16)[0]
-    alg = bytes(vb[desc + 24:desc + 56]).rstrip(b"\x00")
-    name_len, salt_len, digest_len, _flags = struct.unpack_from(">IIII", vb, desc + 56)
-    if tag != 2 or alg != b"sha256" or name_len != 10 or digest_len != 32:
-        raise SystemExit(f"unexpected bootloader descriptor: tag={tag} alg={alg!r} "
-                         f"name_len={name_len} digest_len={digest_len}")
-    salt = bytes(vb[name_off + name_len:name_off + name_len + salt_len])
-    dig_off = name_off + name_len + salt_len
-    old_digest = bytes(vb[dig_off:dig_off + digest_len])
+    # ---- keystorage first ----
+    # Its own descriptor in vbmeta covers keystorage[:0x2000], which contains
+    # both the AVB key we swap and the ST2 signature over it. So keystorage
+    # has to be finished before its digest can be taken. There is no loop:
+    # keystorage's ST2 signature covers only itself, and vbmeta is signed
+    # afterwards.
+    ks = bytearray(Path(args.keystorage).read_bytes())
+    at = KEYSTORAGE_AVB_KEY_OFF
+    if bytes(ks[at:at + PUBKEY_BLOB_LEN]) != stock_pub:
+        found = ks.find(stock_pub)
+        raise SystemExit(f"PO_AVB_KEY not at {at:#x}"
+                         + (f"; found at {found:#x}" if found >= 0 else "; not found"))
+    ks[at:at + PUBKEY_BLOB_LEN] = our_pub_blob
+    staged = out / "keystorage.avbkey.bin"
+    staged.write_bytes(bytes(ks))
+    print(f"\nkeystorage")
+    print(f"  PO_AVB_KEY at {at:#x} replaced with ours")
+    final_ks = out / "keystorage.bin"
+    subprocess.run(["python3", str(Path(__file__).with_name("resign_st2_container.py")),
+                    str(staged), str(final_ks),
+                    "--proof", args.keystorage,
+                    "--keys", args.keys], check=True)
+    args.image.append(f"keystorage={final_ks}")
 
-    sboot = Path(args.sboot).read_bytes()
-    if len(sboot) < image_size:
-        raise SystemExit(f"sboot is {len(sboot)} bytes, descriptor covers {image_size}")
-    new_digest = hashlib.sha256(salt + sboot[:image_size]).digest()
-    print(f"  bootloader descriptor at {desc:#x}, digest at {dig_off:#x}")
-    print(f"    covers sboot[:{image_size:#x}]  ({image_size} bytes, from the descriptor)")
-    print(f"    was {old_digest.hex()}")
-    print(f"    now {new_digest.hex()}")
-    vb[dig_off:dig_off + 32] = new_digest
+    # Walk the descriptor list rather than searching for a name: "cm" as a
+    # byte string occurs all over an 8 KB aux block, and vbmeta covers four
+    # partitions here, not one. Each descriptor carries its own image_size,
+    # and they differ -- 0x364310 for the bootloader, 0x3f4110 for cm, 0x2000
+    # for keystorage -- so none of them can be assumed.
+    replacements = dict(pair.split("=", 1) for pair in args.image)
+    seen = {}
+    off = b["aux_off"]
+    aux_end = b["aux_off"] + b["aux"]
+    while off + 16 <= aux_end:
+        tag, following = struct.unpack_from(">QQ", vb, off)
+        total = 16 + following
+        if total <= 16 or off + total > aux_end:
+            break
+        if tag == 2:  # AVB_DESCRIPTOR_TAG_HASH
+            image_size = struct.unpack_from(">Q", vb, off + 16)[0]
+            alg = bytes(vb[off + 24:off + 56]).rstrip(b"\x00")
+            name_len, salt_len, digest_len, _flags = struct.unpack_from(
+                ">IIII", vb, off + 56)
+            name = bytes(vb[off + 132:off + 132 + name_len]).decode()
+            salt_off = off + 132 + name_len
+            dig_off = salt_off + salt_len
+            salt = bytes(vb[salt_off:salt_off + salt_len])
+            old_digest = bytes(vb[dig_off:dig_off + digest_len])
+            seen[name] = (image_size, alg, salt, dig_off, digest_len, old_digest)
+        off += total
+
+    print(f"\n  hash descriptors: {', '.join(sorted(seen))}")
+    unknown = set(replacements) - set(seen)
+    if unknown:
+        raise SystemExit(f"no descriptor for: {', '.join(sorted(unknown))}")
+
+    # Prove each descriptor's own rule before trusting it. The sizes differ
+    # per partition and none of them is the whole image, so a wrong one would
+    # otherwise produce a digest that is confidently wrong.
+    for pair in args.stock_image:
+        name, path = pair.split("=", 1)
+        if name not in seen:
+            raise SystemExit(f"--stock-image {name}: no such descriptor")
+        image_size, _alg, salt, _do, _dl, old_digest = seen[name]
+        blob = Path(path).read_bytes()
+        got = hashlib.sha256(salt + blob[:image_size]).digest()
+        status = "PASS" if got == old_digest else "FAIL"
+        print(f"  {name:11} stock hashes to its descriptor digest : {status}")
+        if got != old_digest:
+            raise SystemExit(f"{name}: the rule does not reproduce Samsung's digest")
+
+    for name in sorted(replacements):
+        image_size, alg, salt, dig_off, digest_len, old_digest = seen[name]
+        if alg != b"sha256" or digest_len != 32:
+            raise SystemExit(f"{name}: unsupported {alg!r}/{digest_len}")
+        blob = Path(replacements[name]).read_bytes()
+        if len(blob) < image_size:
+            raise SystemExit(f"{name}: image is {len(blob)} bytes, "
+                             f"descriptor covers {image_size}")
+        new_digest = hashlib.sha256(salt + blob[:image_size]).digest()
+        print(f"  {name}")
+        print(f"    covers {replacements[name]}[:{image_size:#x}]")
+        print(f"    was {old_digest.hex()}")
+        print(f"    now {new_digest.hex()}")
+        vb[dig_off:dig_off + digest_len] = new_digest
+
+    untouched = sorted(set(seen) - set(replacements))
+    if untouched:
+        print(f"  left alone (still Samsung's): {', '.join(untouched)}")
+
     vb[b["pk_off"]:b["pk_off"] + b["pk_sz"]] = our_pub_blob
 
     new_hash = vbmeta_digest(vb, b)
@@ -173,25 +244,7 @@ def main():
     print("  re-signed vbmeta rejected by Samsung's    : PASS")
     (out / "vbmeta.img").write_bytes(bytes(vb))
 
-    # ---- keystorage ----
-    ks = bytearray(Path(args.keystorage).read_bytes())
-    at = KEYSTORAGE_AVB_KEY_OFF
-    if bytes(ks[at:at + PUBKEY_BLOB_LEN]) != stock_pub:
-        found = ks.find(stock_pub)
-        raise SystemExit(f"PO_AVB_KEY not at {at:#x}"
-                         + (f"; found at {found:#x}" if found >= 0 else "; not found"))
-    ks[at:at + PUBKEY_BLOB_LEN] = our_pub_blob
-    staged = out / "keystorage.avbkey.bin"
-    staged.write_bytes(bytes(ks))
-    print(f"\nkeystorage")
-    print(f"  PO_AVB_KEY at {at:#x} replaced with ours")
-
-    subprocess.run(["python3", str(Path(__file__).with_name("resign_st2_container.py")),
-                    str(staged), str(out / "keystorage.bin"),
-                    "--proof", args.keystorage,
-                    "--keys", args.keys], check=True)
-
-    print(f"\nwrote {out}/vbmeta.img and {out}/keystorage.bin")
+    print(f"\nwrote {out}/vbmeta.img and {final_ks}")
     print("Both must be flashed together: the key in one signs the other's chain.")
     return 0
 
