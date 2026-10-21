@@ -98,6 +98,10 @@ def main():
                          "automatically once it has been re-signed.")
     ap.add_argument("--avb-key", default="/home/chanz22/EUB-N10/9825_customkey/keys/4/avb.pem")
     ap.add_argument("--keys", default="/home/chanz22/EUB-N10/9825_customkey/keys")
+    ap.add_argument("--disable-hashtree", action="store_true",
+                    help="set AVB_VBMETA_IMAGE_FLAGS_HASHTREE_DISABLED, so "
+                         "libavb skips dm-verity and uses the cmdline "
+                         "descriptor Samsung already ships for that case")
     ap.add_argument("--out-dir", default="build/custom_avb")
     args = ap.parse_args()
 
@@ -227,6 +231,24 @@ def main():
         print(f"  left alone (still Samsung's): {', '.join(untouched)}")
 
     vb[b["pk_off"]:b["pk_off"] + b["pk_sz"]] = our_pub_blob
+
+    if args.disable_hashtree:
+        # Bit 1 of the header flags. This is not a bypass: libavb is designed
+        # to take it, and the image already carries the two kernel cmdline
+        # descriptors that go with it -- flags 1 for the dm-verity line,
+        # flags 2 for the plain root=PARTUUID line used when hashtree is off.
+        # Samsung shipped both; this picks the second.
+        #
+        # It matters because the bootloader substitutes $(ANDROID_VERITY_MODE)
+        # from the lock state: unlocked gives `eio`, where a hashtree mismatch
+        # is tolerated, and locked gives `enforcing`, where the kernel refuses
+        # to mount root and restarts. Turning the hashtree off removes that
+        # cliff without touching any hash descriptor -- bootloader, cm,
+        # keystorage and boot are all still verified.
+        flags, _ril = struct.unpack_from(">II", vb, 120)
+        struct.pack_into(">I", vb, 120, flags | 2)
+        print(f"  header flags {flags:#x} -> {flags | 2:#x} "
+              "(HASHTREE_DISABLED; dm-verity off, hash descriptors unchanged)")
 
     new_hash = vbmeta_digest(vb, b)
     priv = serialization.load_pem_private_key(avb_key.read_bytes(), password=None)
