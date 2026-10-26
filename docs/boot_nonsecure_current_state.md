@@ -36,8 +36,9 @@ BootROM → EPBL (0x02022000) → FWBL1 (0x02026000) → BL2 → sboot/U-Boot (0
 - `sboot.bin` container (official BL tar, Binary 9) starts WITH the EPBL at
   offset 0: `18 00 00 00 ... 15860990 ... 02023aac` (the EPBL dispatch literals).
   It is EPBL + FWBL1 + BL2 + u-boot + el3_mon concatenated.
-- FWBL1: ~8 KB plaintext stub (`0x02026000..0x02028000`) + encrypted body
-  (`0x02028000..`, byte-entropy ~8.0). The stub self-decrypts the body at runtime;
+- FWBL1: plaintext stub (`0x02026000..0x02027ca0`) + encrypted body
+  (`0x02027ca0..0x02031d20`, `0xa080` bytes, byte-entropy ~8.0;
+  `src=0x02027ca0,len=0xa080` in `FUN_02026720`). The stub self-decrypts the body at runtime;
   the decrypted body is plaintext ARM (entropy ~6, strings `mon_smc`,
   `[EL3 ENC]`, `Wrong boot state`).
 - EL3 monitor: FWBL1 installs `vbar_el3 = 0x02030000` in the iRAM copy, but the

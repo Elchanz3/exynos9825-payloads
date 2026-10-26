@@ -34,8 +34,8 @@ involved, and why a replacement stage inherits a working machine.
 | | |
 |---|---|
 | EPBL | `0x02022000` (iRAM) |
-| FWBL1 | `0x02026000`; plaintext stub to `0x02028000`, body encrypted, self-decrypts at runtime |
-| FWBL1 padding, free for our code | `0x02038000`.. (the `is_secure_boot` stub lives at `0x02038010`) |
+| FWBL1 | `0x02026000`; plaintext stub to `0x02027ca0`, body encrypted (`0x02027ca0..0x02031d20`), self-decrypts at runtime |
+| FWBL1 slack (NOT all free) | `is_secure_boot` stub fits at `0x02038010`, but `0x02036000` (load scratch) and `0x02038800` (passed to `FUN_0202d7ac`) are live — see `docs/fwbl1_study.md` |
 | BL2 | loaded by FWBL1; reads MINFORM bits 4..7 at `bl2.bin+0xe4` (literal pool `+0x2c8`) |
 | **u-boot / the stage we replace** | **`0xc9000000`**, size `0x180000` |
 | EL3 monitor | relocated to ~`0xff80000` (TZDRM); entry transfer is `(*0xff80020)()` |
